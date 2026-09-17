@@ -49,6 +49,16 @@ npm run deploy:cloudflare
 - `OPENAI_API_KEY`：OpenAI API 金鑰
 - `ACCESS_PASSWORD`：團隊密碼。設定後所有頁面與 API 都要先登入；未設定時網站不設防。
 
+## 串接 EMC 設計需求系統
+
+設計需求系統前台（https://emctaipeiart.github.io）「填寫設計需求 › 階段 › Ai判斷」會直接呼叫這裡的 API：
+
+- `POST /api/analyze`（multipart：`images`、`slidesUrl`）
+- 驗證（任一即可，不使用第三方 cookie）：
+  - `X-EMC-Editor-Token`：設計需求系統已登入帳號的 token，經 Service Binding `DESIGN_API`（machi-design-api）的 `verifyToken` 驗證，結果快取 5 分鐘
+  - `X-EMC-Access`：未登入者以團隊密碼呼叫 `POST /api/login` 取得的 `token`
+- 允許的來源：`cloudflare.deploy.json` 的 `allowedOrigins`（CORS），以及 `next.config.ts` 的 `serverActions.allowedOrigins`（vinext 會對跨站 multipart POST 做 CSRF 檢查）；本機 `localhost:8787` 供測試。
+
 ## 費用計算
 
 單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際帳單以 OpenAI 後台為準。

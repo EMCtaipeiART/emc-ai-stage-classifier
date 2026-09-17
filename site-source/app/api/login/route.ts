@@ -14,7 +14,8 @@ export async function POST(request: Request) {
   }
 
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
-  return Response.json({ ok: true }, {
+  // token 也放在回應裡，給跨網站（EMC 設計需求系統前台）以 X-EMC-Access 標頭使用
+  return Response.json({ ok: true, token: expected }, {
     headers: { "Set-Cookie": `${AUTH_COOKIE}=${expected}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_MAX_AGE}${secure}` },
   });
 }

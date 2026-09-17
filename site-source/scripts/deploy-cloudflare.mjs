@@ -28,6 +28,9 @@ config.d1_databases = [{
 }];
 config.r2_buckets = deploy.r2BucketName ? [{ binding: "BUCKET", bucket_name: deploy.r2BucketName }] : [];
 config.kv_namespaces = !deploy.r2BucketName && deploy.kvNamespaceId ? [{ binding: "ASSETS_KV", id: deploy.kvNamespaceId }] : [];
+// 驗證 EMC 設計需求系統的登入 token；允許前台跨網站呼叫 API
+config.services = deploy.designApiService ? [{ binding: "DESIGN_API", service: deploy.designApiService }] : [];
+config.vars = { ...config.vars, ALLOWED_ORIGINS: (deploy.allowedOrigins || []).join(",") };
 writeFileSync(new URL(`../${configPath}`, import.meta.url), JSON.stringify(config));
 
 wrangler("d1", "migrations", "apply", "DB", "--remote", "--config", configPath);
