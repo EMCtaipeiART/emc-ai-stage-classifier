@@ -1,0 +1,3 @@
+interface:
+  display_name: "EMC 案件階段判定"
+  short_description: "判定設計案件為新製、再製或資訊不足"

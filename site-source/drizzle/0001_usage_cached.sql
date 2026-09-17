@@ -1,0 +1,1 @@
+ALTER TABLE `analysis_history` ADD `usage_cached` integer DEFAULT 0 NOT NULL;

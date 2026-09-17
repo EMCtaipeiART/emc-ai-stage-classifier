@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+dist/
+.next/
+.vinext/
+.wrangler/
+.sites-runtime/
+.dev.vars*
+.env*
+*.pem
+deployment-bundle.tar.gz
+*.tsbuildinfo

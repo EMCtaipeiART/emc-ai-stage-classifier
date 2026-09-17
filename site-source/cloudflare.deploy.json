@@ -1,0 +1,9 @@
+{
+  "workerName": "emc-ai-stage-classifier",
+  "d1": {
+    "databaseName": "emc-ai-stage-classifier",
+    "databaseId": "b2e36855-0729-4d09-8ae4-77e6abcf2db6"
+  },
+  "kvNamespaceId": "5a48f224251f4d158950c3b4a9b4467f",
+  "r2BucketName": null
+}
