@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { analysisHistory } from "@/db/schema";
 import { MODEL as OPENAI_MODEL, usageCostUsd } from "@/lib/pricing";
+import { GEMINI_MODEL } from "@/lib/models";
 import { assetStorageReady, putAsset } from "@/lib/storage";
 import skillMarkdown from "../../../skills/emc-stage-classifier/SKILL.md?raw";
 
@@ -9,7 +10,6 @@ export const runtime = "edge";
 
 // 判定規則統一放在 skills/emc-stage-classifier/SKILL.md，這裡去掉 frontmatter 後當作 instructions
 const skillInstructions = skillMarkdown.replace(/^---[\s\S]*?---\s*/, "").trim();
-const GEMINI_MODEL = "gemini-3.6-flash";
 
 const schema = {
   type: "object", additionalProperties: false,
@@ -279,7 +279,9 @@ export async function POST(request: Request) {
     if (!analysis) {
       return Response.json({ error: geminiFailure || "AI 分析服務目前無法使用。" }, { status: 502 });
     }
-    const result = { ...analysis.result, provider: analysis.usage.provider, model: analysis.usage.model, fallbackUsed: analysis.usage.fallbackUsed };
+    // 備援原因一併回傳並存進紀錄，否則畫面上看不出 Gemini 為什麼沒被使用
+    const fallbackReason = analysis.usage.provider === "openai" && geminiFailure ? geminiFailure : "";
+    const result = { ...analysis.result, provider: analysis.usage.provider, model: analysis.usage.model, fallbackUsed: analysis.usage.fallbackUsed, fallbackReason };
     const usage = analysis.usage;
     let historyId: string | null = null;
     let historyWarning = "";
@@ -288,6 +290,6 @@ export async function POST(request: Request) {
     } catch (error) {
       historyWarning = error instanceof Error ? error.message : "歷史紀錄儲存失敗。";
     }
-    return Response.json({ ...result, usage, historyId, historySaved: Boolean(historyId), historyWarning, slidesWarning });
+    return Response.json({ ...result, usage: { ...usage, fallbackReason }, historyId, historySaved: Boolean(historyId), historyWarning, slidesWarning });
   } catch (error) { return Response.json({ error: error instanceof Error ? error.message : "分析時發生未預期錯誤。" }, { status: 500 }); }
 }

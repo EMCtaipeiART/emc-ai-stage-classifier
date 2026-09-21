@@ -64,6 +64,11 @@ npm run deploy:cloudflare
 
 主要引擎 `gemini-3.6-flash` 使用 Gemini 免費額度，單次顯示費用為 0。OpenAI 備援單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際額度與帳單以 Google AI Studio 與 OpenAI 後台為準。
 
+## 確認目前用哪個引擎
+
+- 登入後開啟 `/api/status`（例如 https://emc-ai-stage-classifier.machi-chen.workers.dev/api/status ）：會回報 `activeProvider`、Gemini 是否可用與錯誤訊息。
+- 每次分析結果都會標示實際引擎；若退回 OpenAI，會一併顯示 Gemini 失敗原因（`fallbackReason`）。
+
 ## 安全說明
 
 - 金鑰與密碼只存在 `.dev.vars`（本機）或 Cloudflare secrets（線上），不在程式碼中。

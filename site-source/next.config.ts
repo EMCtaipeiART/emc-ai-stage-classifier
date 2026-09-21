@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "35mb",
       // vinext 會把跨網站的 multipart POST 當成 server action 做 CSRF 檢查；
       // EMC 設計需求系統前台（與本機測試）要能呼叫 /api/analyze。驗證改由標頭 token 負責，不靠 cookie。
-      allowedOrigins: ["emctaipeiart.github.io", "localhost:8787", "127.0.0.1:8787"],
+      allowedOrigins: ["emctaipeiart.github.io", "localhost:8787", "127.0.0.1:8787", "localhost:8788", "127.0.0.1:8788"],
     },
   },
 };
