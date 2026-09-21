@@ -62,7 +62,7 @@ npm run deploy:cloudflare
 
 ## AI 引擎與費用
 
-主要引擎 `gemini-3.6-flash` 使用 Gemini 免費額度，單次顯示費用為 0。OpenAI 備援單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際額度與帳單以 Google AI Studio 與 OpenAI 後台為準。
+主要引擎依序嘗試 `gemini-3.6-flash` → `gemini-3.5-flash` → `gemini-2.5-flash`（`site-source/lib/models.ts`），使用 Gemini 免費額度，單次顯示費用為 0。遇到「模型忙碌」這類暫時性錯誤會先重試一次再換下一個模型，全部失敗才改用 OpenAI。OpenAI 備援單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際額度與帳單以 Google AI Studio 與 OpenAI 後台為準。
 
 ## 確認目前用哪個引擎
 

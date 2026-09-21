@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { analysisHistory } from "@/db/schema";
 import { MODEL as OPENAI_MODEL, usageCostUsd } from "@/lib/pricing";
-import { GEMINI_MODEL } from "@/lib/models";
+import { GEMINI_MODELS, isRetryableGeminiError } from "@/lib/models";
 import { assetStorageReady, putAsset } from "@/lib/storage";
 import skillMarkdown from "../../../skills/emc-stage-classifier/SKILL.md?raw";
 
@@ -157,10 +157,40 @@ function getGeminiText(payload: GeminiResponsePayload) {
     .trim();
 }
 
+class GeminiError extends Error {
+  constructor(message: string, readonly retryable: boolean) { super(message); }
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 依序試每個 Gemini 模型，遇到「忙碌」這類暫時性錯誤時先重試一次，再換下一個模型。 */
+async function analyzeWithGeminiModels(
+  apiKey: string,
+  images: File[],
+  slidesPdf: { bytes: Uint8Array } | null,
+): Promise<ProviderResult> {
+  let lastError: unknown = new Error("Gemini 分析失敗。");
+  for (const [index, model] of GEMINI_MODELS.entries()) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await analyzeWithGemini(apiKey, images, slidesPdf, model);
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof GeminiError) || !error.retryable) throw error;
+        // 最後一個模型的最後一次嘗試就不用再等
+        if (index === GEMINI_MODELS.length - 1 && attempt === 1) break;
+        if (attempt === 0) await wait(1200);
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function analyzeWithGemini(
   apiKey: string,
   images: File[],
   slidesPdf: { bytes: Uint8Array } | null,
+  model: string,
 ): Promise<ProviderResult> {
   const parts: Array<Record<string, unknown>> = [{
     text: `請依附件判定案件階段。資料優先順序：第一優先為截圖，第二優先為 Google Slides PDF。可用截圖：${images.length} 張；可讀簡報：${slidesPdf ? "有" : "無"}。`,
@@ -174,7 +204,7 @@ async function analyzeWithGemini(
     parts.push({ inlineData: { mimeType: "application/pdf", data: dataUrl.split(",")[1] } });
   }
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -187,9 +217,13 @@ async function analyzeWithGemini(
     }),
   });
   const payload = await response.json() as GeminiResponsePayload;
-  if (!response.ok) throw new Error(payload.error?.message || `Gemini 回應失敗（${response.status}）`);
+  if (!response.ok) {
+    const message = payload.error?.message || `Gemini 回應失敗（${response.status}）`;
+    throw new GeminiError(`${message}（模型 ${model}）`, isRetryableGeminiError(response.status, message));
+  }
   const outputText = getGeminiText(payload);
-  if (!outputText) throw new Error("Gemini 未回傳可用的判定結果。");
+  // 模型忙碌時偶爾會回 200 但內容是空的，這也當成可重試
+  if (!outputText) throw new GeminiError(`Gemini 未回傳可用的判定結果（模型 ${model}）。`, true);
   const result = JSON.parse(outputText) as Record<string, unknown>;
   const metadata = payload.usageMetadata || {};
   const input = metadata.promptTokenCount || 0;
@@ -200,7 +234,7 @@ async function analyzeWithGemini(
     : Math.max(0, total - input);
   return {
     result,
-    usage: { input, cached, output, total, costUsd: 0, provider: "gemini", model: payload.modelVersion || GEMINI_MODEL, fallbackUsed: false },
+    usage: { input, cached, output, total, costUsd: 0, provider: "gemini", model: payload.modelVersion || model, fallbackUsed: false },
   };
 }
 
@@ -267,7 +301,7 @@ export async function POST(request: Request) {
     let geminiFailure = "";
     if (geminiApiKey) {
       try {
-        analysis = await analyzeWithGemini(geminiApiKey, images, slidesPdf);
+        analysis = await analyzeWithGeminiModels(geminiApiKey, images, slidesPdf);
       } catch (error) {
         geminiFailure = error instanceof Error ? error.message : "Gemini 分析失敗。";
         console.warn("Gemini primary failed; using OpenAI fallback.", geminiFailure);

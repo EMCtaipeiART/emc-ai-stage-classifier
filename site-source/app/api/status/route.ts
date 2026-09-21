@@ -1,5 +1,5 @@
 import { MODEL as OPENAI_MODEL } from "@/lib/pricing";
-import { GEMINI_MODEL } from "@/lib/models";
+import { GEMINI_MODELS } from "@/lib/models";
 
 export const runtime = "edge";
 
@@ -7,27 +7,27 @@ export const runtime = "edge";
 export async function GET() {
   const geminiKey = process.env.GEMINI_API_KEY || "";
   const openAiKey = process.env.OPENAI_API_KEY || "";
-  let geminiOk = false;
-  let geminiError = "";
+  const models: Array<{ model: string; ok: boolean; error: string }> = [];
 
   if (geminiKey) {
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}`, {
-        headers: { "x-goog-api-key": geminiKey },
-      });
-      const payload = await response.json().catch(() => ({})) as { error?: { message?: string } };
-      geminiOk = response.ok;
-      if (!geminiOk) geminiError = payload.error?.message || `Gemini 回應失敗（${response.status}）`;
-    } catch (error) {
-      geminiError = error instanceof Error ? error.message : "Gemini 連線失敗。";
+    for (const model of GEMINI_MODELS) {
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}`, {
+          headers: { "x-goog-api-key": geminiKey },
+        });
+        const payload = await response.json().catch(() => ({})) as { error?: { message?: string } };
+        models.push({ model, ok: response.ok, error: response.ok ? "" : (payload.error?.message || `Gemini 回應失敗（${response.status}）`) });
+      } catch (error) {
+        models.push({ model, ok: false, error: error instanceof Error ? error.message : "Gemini 連線失敗。" });
+      }
     }
-  } else {
-    geminiError = "尚未設定 GEMINI_API_KEY。";
   }
+  const geminiOk = models.some((item) => item.ok);
+  const geminiError = geminiKey ? (geminiOk ? "" : models.map((item) => `${item.model}: ${item.error}`).join("；")) : "尚未設定 GEMINI_API_KEY。";
 
   return Response.json({
     activeProvider: geminiOk ? "gemini" : (openAiKey ? "openai" : "none"),
-    gemini: { configured: Boolean(geminiKey), model: GEMINI_MODEL, ok: geminiOk, error: geminiError },
+    gemini: { configured: Boolean(geminiKey), models, ok: geminiOk, error: geminiError },
     openai: { configured: Boolean(openAiKey), model: OPENAI_MODEL },
     checkedAt: new Date().toISOString(),
   });
