@@ -270,6 +270,7 @@ export async function POST(request: Request) {
         analysis = await analyzeWithGemini(geminiApiKey, images, slidesPdf);
       } catch (error) {
         geminiFailure = error instanceof Error ? error.message : "Gemini 分析失敗。";
+        console.warn("Gemini primary failed; using OpenAI fallback.", geminiFailure);
       }
     }
     if (!analysis && openAiApiKey) {
