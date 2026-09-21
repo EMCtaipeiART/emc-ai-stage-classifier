@@ -1,6 +1,6 @@
 # EMC AI 階段判定器
 
-上傳設計需求單截圖（或公開的 Google Slides），由 OpenAI `gpt-5-mini` 判定案件為「新製」、「再製」或「資訊不足」，並記錄每次分析的附件、token 用量與換算金額。
+上傳設計需求單截圖（或公開的 Google Slides），優先使用 Gemini `gemini-3.6-flash` 免費額度判定案件為「新製」、「再製」或「資訊不足」；Gemini 不可用時會自動改用 OpenAI `gpt-5-mini` 備援。系統會記錄每次分析的附件、實際引擎、token 用量與備援費用。
 
 - 線上版（Cloudflare Workers，需團隊密碼）：https://emc-ai-stage-classifier.machi-chen.workers.dev
 - 技術：vinext（Next.js App Router on Vite）+ Cloudflare Workers、D1、KV／R2
@@ -13,7 +13,7 @@
 | `site-source/skills/emc-stage-classifier/SKILL.md` | **判定規則**，網站分析時直接讀取 |
 | `codex-skill/emc-stage-classifier/` | 同一份規則的 Codex Skill 副本 |
 | `啟動首頁.command` | macOS 本機啟動（雙擊） |
-| `設定雲端金鑰與密碼.command` | 設定 Cloudflare 線上版的 OpenAI 金鑰與團隊密碼（雙擊） |
+| `設定雲端金鑰與密碼.command` | 設定 Cloudflare 線上版的 Gemini／OpenAI 金鑰與團隊密碼（雙擊） |
 
 ## 判定規則
 
@@ -27,7 +27,7 @@
 
 需要 Node.js 22 以上。
 
-1. 雙擊 `啟動首頁.command`。第一次會安裝套件、要求貼上完整的 OpenAI API 金鑰（存在 `site-source/.dev.vars`，不會進 git），並建立本機資料庫。
+1. 雙擊 `啟動首頁.command`。第一次會安裝套件、要求貼上完整的 Gemini API 金鑰，並可另外設定 OpenAI 備援金鑰（都存在 `site-source/.dev.vars`，不會進 git），並建立本機資料庫。
 2. 開啟 http://localhost:5173/
 3. 結束時在終端機按 `Control + C`。
 
@@ -46,7 +46,8 @@ npm run deploy:cloudflare
 
 第一次部署後，雙擊 `設定雲端金鑰與密碼.command` 設定：
 
-- `OPENAI_API_KEY`：OpenAI API 金鑰
+- `GEMINI_API_KEY`：Gemini API 金鑰（主要引擎，免費額度）
+- `OPENAI_API_KEY`：OpenAI API 金鑰（Gemini 失敗時的備援）
 - `ACCESS_PASSWORD`：團隊密碼。設定後所有頁面與 API 都要先登入；未設定時網站不設防。
 
 ## 串接 EMC 設計需求系統
@@ -59,9 +60,9 @@ npm run deploy:cloudflare
   - `X-EMC-Access`：未登入者以團隊密碼呼叫 `POST /api/login` 取得的 `token`
 - 允許的來源：`cloudflare.deploy.json` 的 `allowedOrigins`（CORS），以及 `next.config.ts` 的 `serverActions.allowedOrigins`（vinext 會對跨站 multipart POST 做 CSRF 檢查）；本機 `localhost:8787` 供測試。
 
-## 費用計算
+## AI 引擎與費用
 
-單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際帳單以 OpenAI 後台為準。
+主要引擎 `gemini-3.6-flash` 使用 Gemini 免費額度，單次顯示費用為 0。OpenAI 備援單價與匯率在 `site-source/lib/pricing.ts`（gpt-5-mini：輸入 $0.25、快取輸入 $0.025、輸出 $2.00／每百萬 tokens；台幣匯率預設 32）。實際額度與帳單以 Google AI Studio 與 OpenAI 後台為準。
 
 ## 安全說明
 

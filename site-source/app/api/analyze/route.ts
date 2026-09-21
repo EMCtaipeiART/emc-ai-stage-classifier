@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getDb } from "@/db";
 import { analysisHistory } from "@/db/schema";
-import { MODEL, usageCostUsd } from "@/lib/pricing";
+import { MODEL as OPENAI_MODEL, usageCostUsd } from "@/lib/pricing";
 import { assetStorageReady, putAsset } from "@/lib/storage";
 import skillMarkdown from "../../../skills/emc-stage-classifier/SKILL.md?raw";
 
@@ -9,6 +9,7 @@ export const runtime = "edge";
 
 // 判定規則統一放在 skills/emc-stage-classifier/SKILL.md，這裡去掉 frontmatter 後當作 instructions
 const skillInstructions = skillMarkdown.replace(/^---[\s\S]*?---\s*/, "").trim();
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 const schema = {
   type: "object", additionalProperties: false,
@@ -59,6 +60,33 @@ type OpenAIResponsePayload = {
   error?: { message?: string };
   incomplete_details?: { reason?: string };
   usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { cached_tokens?: number } };
+};
+
+type GeminiResponsePayload = {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  error?: { message?: string; status?: string };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    cachedContentTokenCount?: number;
+    candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
+    totalTokenCount?: number;
+  };
+  modelVersion?: string;
+};
+
+type ProviderResult = {
+  result: Record<string, unknown>;
+  usage: {
+    input: number;
+    cached: number;
+    output: number;
+    total: number;
+    costUsd: number;
+    provider: "gemini" | "openai";
+    model: string;
+    fallbackUsed: boolean;
+  };
 };
 
 type StoredMedia = { key: string; name: string; type: string; kind: "image" | "slides" };
@@ -121,10 +149,104 @@ function getResponseText(payload: OpenAIResponsePayload) {
     .trim();
 }
 
+function getGeminiText(payload: GeminiResponsePayload) {
+  return (payload.candidates || [])
+    .flatMap((candidate) => candidate.content?.parts || [])
+    .map((part) => part.text || "")
+    .join("")
+    .trim();
+}
+
+async function analyzeWithGemini(
+  apiKey: string,
+  images: File[],
+  slidesPdf: { bytes: Uint8Array } | null,
+): Promise<ProviderResult> {
+  const parts: Array<Record<string, unknown>> = [{
+    text: `請依附件判定案件階段。資料優先順序：第一優先為截圖，第二優先為 Google Slides PDF。可用截圖：${images.length} 張；可讀簡報：${slidesPdf ? "有" : "無"}。`,
+  }];
+  for (const image of images) {
+    const dataUrl = await fileToDataUrl(image);
+    parts.push({ inlineData: { mimeType: image.type, data: dataUrl.split(",")[1] } });
+  }
+  if (slidesPdf) {
+    const dataUrl = bytesToDataUrl(slidesPdf.bytes, "application/pdf");
+    parts.push({ inlineData: { mimeType: "application/pdf", data: dataUrl.split(",")[1] } });
+  }
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+    method: "POST",
+    headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: `${skillInstructions}\n\n## 資料優先順序\n1. 截圖是第一優先，仔細辨識其中的文字、來源素材檔名與尺寸、目標輸出尺寸、版型與修改指示。\n2. Google Slides PDF 是第二優先；若與截圖矛盾，以截圖為準。` }] },
+      contents: [{ role: "user", parts }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+      },
+    }),
+  });
+  const payload = await response.json() as GeminiResponsePayload;
+  if (!response.ok) throw new Error(payload.error?.message || `Gemini 回應失敗（${response.status}）`);
+  const outputText = getGeminiText(payload);
+  if (!outputText) throw new Error("Gemini 未回傳可用的判定結果。");
+  const result = JSON.parse(outputText) as Record<string, unknown>;
+  const metadata = payload.usageMetadata || {};
+  const input = metadata.promptTokenCount || 0;
+  const cached = metadata.cachedContentTokenCount || 0;
+  const total = metadata.totalTokenCount || 0;
+  const output = metadata.candidatesTokenCount || metadata.thoughtsTokenCount
+    ? (metadata.candidatesTokenCount || 0) + (metadata.thoughtsTokenCount || 0)
+    : Math.max(0, total - input);
+  return {
+    result,
+    usage: { input, cached, output, total, costUsd: 0, provider: "gemini", model: payload.modelVersion || GEMINI_MODEL, fallbackUsed: false },
+  };
+}
+
+async function analyzeWithOpenAI(
+  apiKey: string,
+  images: File[],
+  slidesPdf: { bytes: Uint8Array; dataUrl: string } | null,
+  fallbackUsed: boolean,
+): Promise<ProviderResult> {
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: `請依附件判定案件階段。資料優先順序：第一優先為截圖，第二優先為 Google Slides PDF。可用截圖：${images.length} 張；可讀簡報：${slidesPdf ? "有" : "無"}。` }];
+  for (const image of images) content.push({ type: "input_image", image_url: await fileToDataUrl(image) });
+  if (slidesPdf) content.push({ type: "input_file", filename: "google-slides.pdf", file_data: slidesPdf.dataUrl, detail: "auto" });
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      instructions: `${skillInstructions}\n\n## 資料優先順序\n1. 截圖是第一優先，仔細辨識其中的文字、來源素材檔名與尺寸、目標輸出尺寸、版型與修改指示。\n2. Google Slides PDF 是第二優先；若與截圖矛盾，以截圖為準。`,
+      reasoning: { effort: "medium" },
+      input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "stage_decision", strict: true, schema } },
+    }),
+  });
+  const payload = await response.json() as OpenAIResponsePayload;
+  if (!response.ok) throw new Error(payload.error?.message || "OpenAI 分析服務回應失敗。");
+  const outputText = getResponseText(payload);
+  if (!outputText) {
+    const detail = payload.incomplete_details?.reason;
+    throw new Error(detail ? `OpenAI 回應未完成（${detail}）。` : "OpenAI 未回傳可用的判定結果。");
+  }
+  const result = JSON.parse(outputText) as Record<string, unknown>;
+  const tokens = {
+    input: payload.usage?.input_tokens || 0,
+    cached: payload.usage?.input_tokens_details?.cached_tokens || 0,
+    output: payload.usage?.output_tokens || 0,
+    total: payload.usage?.total_tokens || 0,
+  };
+  return {
+    result,
+    usage: { ...tokens, costUsd: usageCostUsd(tokens), provider: "openai", model: OPENAI_MODEL, fallbackUsed },
+  };
+}
+
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) return Response.json({ error: "網站尚未完成 OpenAI 金鑰設定。" }, { status: 503 });
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const openAiApiKey = process.env.OPENAI_API_KEY;
+    if (!geminiApiKey && !openAiApiKey) return Response.json({ error: "網站尚未完成 AI 金鑰設定。" }, { status: 503 });
     const form = await request.formData();
     const slidesUrl = String(form.get("slidesUrl") || "").trim();
     const images = form.getAll("images")
@@ -141,33 +263,23 @@ export async function POST(request: Request) {
         if (!images.length) return Response.json({ error: slidesWarning }, { status: 422 });
       }
     }
-    const content: Array<Record<string, string>> = [{ type: "input_text", text: `請依附件判定案件階段。資料優先順序：第一優先為截圖，第二優先為 Google Slides PDF。可用截圖：${images.length} 張；可讀簡報：${slidesPdf ? "有" : "無"}。` }];
-    for (const image of images) content.push({ type: "input_image", image_url: await fileToDataUrl(image) });
-    if (slidesPdf) content.push({ type: "input_file", filename: "google-slides.pdf", file_data: slidesPdf.dataUrl, detail: "auto" });
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        instructions: `${skillInstructions}\n\n## 資料優先順序\n1. 截圖是第一優先，仔細辨識其中的文字、來源素材檔名與尺寸、目標輸出尺寸、版型與修改指示。\n2. Google Slides PDF 是第二優先；若與截圖矛盾，以截圖為準。`,
-        reasoning: { effort: "medium" },
-        input: [{ role: "user", content }], text: { format: { type: "json_schema", name: "stage_decision", strict: true, schema } },
-      }),
-    });
-    const payload = await response.json() as OpenAIResponsePayload;
-    if (!response.ok) return Response.json({ error: payload.error?.message || "OpenAI 分析服務回應失敗。" }, { status: 502 });
-    const outputText = getResponseText(payload);
-    if (!outputText) {
-      const detail = payload.incomplete_details?.reason;
-      return Response.json({ error: detail ? `AI 回應未完成（${detail}）。` : "AI 未回傳可用的判定結果。" }, { status: 502 });
+    let analysis: ProviderResult | null = null;
+    let geminiFailure = "";
+    if (geminiApiKey) {
+      try {
+        analysis = await analyzeWithGemini(geminiApiKey, images, slidesPdf);
+      } catch (error) {
+        geminiFailure = error instanceof Error ? error.message : "Gemini 分析失敗。";
+      }
     }
-    const result = JSON.parse(outputText);
-    const tokens = {
-      input: payload.usage?.input_tokens || 0,
-      cached: payload.usage?.input_tokens_details?.cached_tokens || 0,
-      output: payload.usage?.output_tokens || 0,
-      total: payload.usage?.total_tokens || 0,
-    };
-    const usage = { ...tokens, costUsd: usageCostUsd(tokens) };
+    if (!analysis && openAiApiKey) {
+      analysis = await analyzeWithOpenAI(openAiApiKey, images, slidesPdf, Boolean(geminiApiKey));
+    }
+    if (!analysis) {
+      return Response.json({ error: geminiFailure || "AI 分析服務目前無法使用。" }, { status: 502 });
+    }
+    const result = { ...analysis.result, provider: analysis.usage.provider, model: analysis.usage.model, fallbackUsed: analysis.usage.fallbackUsed };
+    const usage = analysis.usage;
     let historyId: string | null = null;
     let historyWarning = "";
     try {

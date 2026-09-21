@@ -36,4 +36,4 @@ writeFileSync(new URL(`../${configPath}`, import.meta.url), JSON.stringify(confi
 wrangler("d1", "migrations", "apply", "DB", "--remote", "--config", configPath);
 wrangler("deploy", "--config", configPath);
 
-console.log("\n部署完成。第一次部署請確認已設定 secrets：OPENAI_API_KEY、ACCESS_PASSWORD（見 README）。");
+console.log("\n部署完成。第一次部署請確認已設定 secrets：GEMINI_API_KEY、OPENAI_API_KEY、ACCESS_PASSWORD（見 README）。");

@@ -4,8 +4,8 @@ import { ChangeEvent, DragEvent, useCallback, useEffect, useMemo, useRef, useSta
 import { formatTwd, formatUsd, PRICE_PER_MILLION } from "@/lib/pricing";
 import { Check, ChevronRight, Clipboard, ExternalLink, FileImage, History, LoaderCircle, RefreshCcw, RotateCcw, Sparkles, Upload, X } from "lucide-react";
 
-type Result = { stage: "新製" | "再製" | "資訊不足"; confidence: number; reason: string; tasks: string[]; basis: string; missing: string[] };
-type Usage = { input: number; cached?: number; output: number; total: number; costUsd?: number };
+type Result = { stage: "新製" | "再製" | "資訊不足"; confidence: number; reason: string; tasks: string[]; basis: string; missing: string[]; provider?: "gemini" | "openai"; model?: string; fallbackUsed?: boolean };
+type Usage = { input: number; cached?: number; output: number; total: number; costUsd?: number; provider?: "gemini" | "openai"; model?: string; fallbackUsed?: boolean };
 type AnalysisResult = Result & { usage: Usage; historyId?: string | null; historySaved?: boolean; historyWarning?: string; slidesWarning?: string };
 type HistoryItem = {
   id: string;
@@ -24,15 +24,18 @@ const formatTime = (value: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value
 const stageTone = (stage?: string) => stage === "新製" ? "new" : stage === "再製" ? "rework" : "unknown";
 
 function ResultDetails({ result }: { result: Result & { usage: Usage } }) {
+  const isGemini = (result.usage.provider || result.provider) === "gemini";
+  const providerLabel = isGemini ? "Gemini 免費額度" : "OpenAI 備援";
   return <>
     <div className="detail"><h3>辨識到的工作內容</h3><div className="tags">{(result.tasks.length ? result.tasks : ["尚未辨識到明確工作項目"]).map((task) => <span key={task}>{task}</span>)}</div></div>
     <div className="detail"><h3>判斷依據</h3><p>{result.basis}</p></div>
     {!!result.missing.length && <div className="detail"><h3>建議補充</h3><ul>{result.missing.map((item) => <li key={item}>{item}</li>)}</ul></div>}
     <div className="detail usage-detail"><h3>API 用量與費用</h3>
       <table className="cost-table"><tbody>
-        <tr><td>輸入</td><td>{(result.usage.input - (result.usage.cached || 0)).toLocaleString()} tokens</td><td>× ${PRICE_PER_MILLION.input}/1M</td></tr>
-        {!!result.usage.cached && <tr><td>快取輸入</td><td>{result.usage.cached.toLocaleString()} tokens</td><td>× ${PRICE_PER_MILLION.cachedInput}/1M</td></tr>}
-        <tr><td>輸出（含推理）</td><td>{result.usage.output.toLocaleString()} tokens</td><td>× ${PRICE_PER_MILLION.output}/1M</td></tr>
+        <tr><td>實際引擎</td><td colSpan={2}><b>{providerLabel}</b><small>{result.usage.model || result.model || ""}</small></td></tr>
+        <tr><td>輸入</td><td>{(result.usage.input - (result.usage.cached || 0)).toLocaleString()} tokens</td><td>{isGemini ? "免費額度" : `× $${PRICE_PER_MILLION.input}/1M`}</td></tr>
+        {!!result.usage.cached && <tr><td>快取輸入</td><td>{result.usage.cached.toLocaleString()} tokens</td><td>{isGemini ? "免費額度" : `× $${PRICE_PER_MILLION.cachedInput}/1M`}</td></tr>}
+        <tr><td>輸出（含推理）</td><td>{result.usage.output.toLocaleString()} tokens</td><td>{isGemini ? "免費額度" : `× $${PRICE_PER_MILLION.output}/1M`}</td></tr>
         <tr className="cost-total"><td>合計</td><td>{result.usage.total.toLocaleString()} tokens</td><td><b>{formatUsd(result.usage.costUsd || 0)}</b><small>{formatTwd(result.usage.costUsd || 0)}</small></td></tr>
       </tbody></table>
     </div>
@@ -139,8 +142,8 @@ export default function Home() {
             <button className="analyze" disabled={loading} onClick={analyze}>{loading ? <><LoaderCircle className="spin" size={19} />AI 分析中…</> : <><Sparkles size={19} />開始 AI 分析</>}</button>
             <button className="restart" disabled={loading || (!files.length && !slidesUrl && !result && !error)} onClick={restart}><RotateCcw size={17} />重新開始</button>
           </div>
-          <p className="privacy">附件由伺服器端分析並保存於私人紀錄；API 金鑰不會出現在瀏覽器中。</p>
-          <div className="usage-summary"><span>已分析 <b>{usageTotals.analyses}</b> 次 · 累計 <b>{usageTotals.tokens.toLocaleString()}</b> tokens · <b>{formatUsd(usageTotals.costUsd || 0)}</b>（{formatTwd(usageTotals.costUsd || 0)}）</span><a href="https://platform.openai.com/settings/organization/billing/" target="_blank" rel="noreferrer">查看剩餘額度 <ExternalLink size={13} /></a></div>
+          <p className="privacy">優先使用 Gemini 免費額度，不可用時自動切換 OpenAI 備援；兩組 API 金鑰都只保留在伺服器端。</p>
+          <div className="usage-summary"><span>已分析 <b>{usageTotals.analyses}</b> 次 · 累計 <b>{usageTotals.tokens.toLocaleString()}</b> tokens · OpenAI 備援費用 <b>{formatUsd(usageTotals.costUsd || 0)}</b>（{formatTwd(usageTotals.costUsd || 0)}）</span><span><a href="https://aistudio.google.com/usage" target="_blank" rel="noreferrer">Gemini 用量 <ExternalLink size={13} /></a><a href="https://platform.openai.com/settings/organization/billing/" target="_blank" rel="noreferrer">OpenAI 額度 <ExternalLink size={13} /></a></span></div>
         </section>
         <aside className="panel result-panel" aria-live="polite">
           <div className="panel-title"><h2>AI 判定建議</h2><span>02／確認結果</span></div>
@@ -148,6 +151,7 @@ export default function Home() {
             <div className={`verdict ${tone}`}><div><strong>AI 判定：{result.stage}</strong><b>信心度 {result.confidence}%</b></div><p>{result.reason}</p><div className="meter"><i style={{ width: `${result.confidence}%` }} /></div></div>
             <ResultDetails result={result} />
             {result.slidesWarning && <p className="notice">{result.slidesWarning}；本次已改以截圖完成分析。</p>}
+            {result.usage.fallbackUsed && <p className="notice">Gemini 本次無法使用，已自動切換 OpenAI 備援完成分析。</p>}
             {result.historyWarning && <p className="error">判定已完成，但紀錄未保存：{result.historyWarning}</p>}
             {result.stage !== "資訊不足" && <div className="decision"><button className="accept" onClick={() => setAccepted(true)}><Check size={17} />{accepted ? `已採用「${finalStage}」` : `採用「${finalStage}」`}</button><button onClick={() => { setOverride(result.stage === "新製" ? "再製" : "新製"); setAccepted(false); }}>改為「{result.stage === "新製" ? "再製" : "新製"}」</button></div>}
             <div className="utilities"><button onClick={() => navigator.clipboard.writeText(JSON.stringify({ ...result, finalStage }, null, 2))}><Clipboard size={15} />複製結果</button><button onClick={restart}><RotateCcw size={15} />重新開始</button></div>
@@ -158,7 +162,7 @@ export default function Home() {
         <div className="history-heading"><div><span><History size={20} /></span><div><h2>分析紀錄</h2><p>保留最近 50 筆結果、附件與用量，可隨時重新調閱。</p></div></div><button onClick={() => void loadHistory()} disabled={historyLoading}><RefreshCcw className={historyLoading ? "spin" : ""} size={16} />重新整理</button></div>
         {historyLoading && !history.length ? <p className="history-empty">正在載入紀錄…</p> : !history.length ? <p className="history-empty">完成第一次分析後，紀錄會顯示在這裡。</p> : <div className="history-list">{history.map((item) => <article key={item.id} className="history-card">
           <div className={`history-stage ${stageTone(item.result.stage)}`}>{item.result.stage}</div>
-          <div className="history-main"><div className="history-meta"><time>{formatTime(item.createdAt)}</time><span>{item.sourceType}</span><span>{item.usage.total.toLocaleString()} tokens · {formatUsd(item.usage.costUsd || 0)}</span></div><strong>{item.result.reason}</strong>
+          <div className="history-main"><div className="history-meta"><time>{formatTime(item.createdAt)}</time><span>{item.sourceType}</span><span>{item.usage.provider === "gemini" ? "Gemini 免費額度" : "OpenAI 備援"} · {item.usage.total.toLocaleString()} tokens · {formatUsd(item.usage.costUsd || 0)}</span></div><strong>{item.result.reason}</strong>
             {!!item.assets.length && <div className="history-assets">{item.assets.map((asset) => asset.kind === "image" ? <a key={asset.url} href={asset.url} target="_blank" rel="noreferrer"><img src={asset.url} alt={asset.name} /></a> : <a key={asset.url} href={asset.url} target="_blank" rel="noreferrer"><FileImage size={15} />簡報快照</a>)}</div>}
           </div>
           <button className="view-history" onClick={() => setViewing(item)}>查看結果</button>

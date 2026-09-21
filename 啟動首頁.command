@@ -9,45 +9,55 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
-# 1. 套件（已隨資料包附上；若被刪除才重新安裝）
 if [ ! -d node_modules ]; then
   echo "第一次啟動：正在安裝網站套件，請稍候……"
   CODEX_PNPM="/Users/emc-imac1/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/fallback/pnpm"
-  if [ -x "$CODEX_PNPM" ]; then
-    "$CODEX_PNPM" install
-  else
-    npx --yes pnpm@11 install
-  fi
+  if [ -x "$CODEX_PNPM" ]; then "$CODEX_PNPM" install; else npx --yes pnpm@11 install; fi
 fi
 
-# 2. OpenAI 金鑰（只存在本機 .dev.vars，不會上傳）
-if ! grep -q '^OPENAI_API_KEY=.\+' .dev.vars 2>/dev/null; then
+# API 金鑰只存在本機 .dev.vars，不會上傳。
+touch .dev.vars
+chmod 600 .dev.vars
+if ! grep -q '^GEMINI_API_KEY=.\+' .dev.vars 2>/dev/null; then
   echo
-  echo "尚未設定 OpenAI API 金鑰。"
-  echo "請貼上金鑰（sk- 開頭，輸入時不會顯示），按 Enter："
-  read -r -s OPENAI_KEY
+  echo "尚未設定 Gemini API 金鑰。"
+  echo "請貼上 Google AI Studio 複製的完整金鑰（輸入時不會顯示），按 Enter："
+  read -r -s GEMINI_KEY
   echo
-  if [ -z "$OPENAI_KEY" ]; then
+  if [ -z "$GEMINI_KEY" ]; then
     echo "未輸入金鑰，已取消。"
     read -r -p "按 Enter 關閉視窗"
     exit 1
   fi
-  if [[ "$OPENAI_KEY" == *"..."* || ${#OPENAI_KEY} -lt 40 ]]; then
-    echo "這不是完整金鑰（長度 ${#OPENAI_KEY} 字）。OpenAI 列表上的「sk-...xxxx」只是縮寫，無法使用。"
-    echo "請到 https://platform.openai.com/api-keys 按「Create new secret key」，建立後立刻按 Copy 複製整串。"
+  if [[ "$GEMINI_KEY" == *"..."* || ${#GEMINI_KEY} -lt 30 ]]; then
+    echo "這不是完整的 Gemini API 金鑰。"
+    echo "請到 https://aistudio.google.com/apikey 複製完整金鑰。"
     read -r -p "按 Enter 關閉視窗"
     exit 1
   fi
-  umask 077
-  printf 'OPENAI_API_KEY=%s\n' "$OPENAI_KEY" > .dev.vars
-  unset OPENAI_KEY
-  echo "金鑰已儲存到 site-source/.dev.vars。要更換金鑰請刪除這個檔案後重新啟動。"
+  printf 'GEMINI_API_KEY=%s\n' "$GEMINI_KEY" >> .dev.vars
+  unset GEMINI_KEY
+  echo "Gemini 金鑰已儲存到 site-source/.dev.vars。"
 fi
 
-# 3. 本機歷史紀錄資料庫：逐一套用尚未執行過的 drizzle/*.sql
+if ! grep -q '^OPENAI_API_KEY=.\+' .dev.vars 2>/dev/null; then
+  echo
+  echo "尚未設定 OpenAI 備援金鑰。如要啟用備援，請貼上完整金鑰後按 Enter；不設定可直接按 Enter："
+  read -r -s OPENAI_KEY
+  echo
+  if [ -n "$OPENAI_KEY" ]; then
+    if [[ "$OPENAI_KEY" == *"..."* || ${#OPENAI_KEY} -lt 40 ]]; then
+      echo "這不是完整的 OpenAI API 金鑰，已略過。"
+    else
+      printf 'OPENAI_API_KEY=%s\n' "$OPENAI_KEY" >> .dev.vars
+      echo "OpenAI 備援金鑰已儲存。"
+    fi
+    unset OPENAI_KEY
+  fi
+fi
+
 APPLIED=.wrangler/migrations-applied
 mkdir -p "$APPLIED"
-# 舊版啟動檔只記錄了第一個 migration
 [ -f .wrangler/.db-ready ] && touch "$APPLIED/0000_black_captain_flint.sql"
 for f in drizzle/*.sql; do
   name=$(basename "$f")
