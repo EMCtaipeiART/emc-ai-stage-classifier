@@ -1,5 +1,6 @@
 import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, IMAGE_SIZE } from "@/lib/outfit-spec";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
+import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 
 export const runtime = "edge";
 
@@ -53,6 +54,10 @@ export async function POST(request: Request) {
   const description = String(form.get("description") || "").trim().slice(0, 600);
   const quality = QUALITIES.includes(String(form.get("quality"))) ? String(form.get("quality")) : "medium";
   const refit = String(form.get("mode")) === "refit";
+  // 預設用「六套現有服裝的參考圖」當風格與比例參考（細節與線條最精緻、人物最大）；只有修正比例時才用無頭身體底圖。
+  const base: "template" | "sheet" = refit || String(form.get("base")) === "template" ? "template" : "sheet";
+  const sizeParam = String(form.get("size") || "");
+  const size = /^(auto|\d{3,4}x\d{3,4})$/.test(sizeParam) ? sizeParam : IMAGE_SIZE;
   const photos = form.getAll("images").filter((value): value is File => typeof value !== "string").slice(0, 2);
   for (const photo of photos) {
     if (!/^image\/(png|jpeg|webp)$/.test(photo.type) || photo.size > 10 * 1024 * 1024) return Response.json({ error: "參考圖只接受 10MB 內的 PNG、JPG、WebP。" }, { status: 400 });
@@ -65,13 +70,14 @@ export async function POST(request: Request) {
   const buildBody = (transparent: boolean) => {
   const body = new FormData();
   body.set("model", model);
-  body.set("prompt", refit ? buildRefitPrompt(description) : buildOutfitPrompt(description, photos.length > 0));
-  body.set("size", IMAGE_SIZE);
+  body.set("prompt", refit ? buildRefitPrompt(description) : buildOutfitPrompt(description, photos.length > 0, base));
+  body.set("size", size);
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
   body.set("output_format", "png");
   body.set("n", "1");
-  body.append("image[]", base64ToBlob(OUTFIT_TEMPLATE_B64, "image/png"), "outfit-template.png");
+  if (base === "sheet") body.append("image[]", base64ToBlob(OUTFIT_REFERENCE_B64, "image/webp"), "outfit-reference.webp");
+  else body.append("image[]", base64ToBlob(OUTFIT_TEMPLATE_B64, "image/png"), "outfit-template.png");
   photos.forEach((photo, index) => body.append("image[]", photo, photo.name || `photo-${index + 1}`));
   return body;
   };
