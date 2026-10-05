@@ -78,9 +78,9 @@ npm run deploy:cloudflare
 
 Pixel Office 換裝用的服裝圖生成頁：輸入關鍵字，或上傳服裝參考圖，一次生成一套服裝的正面、側面、背面。
 
-- 引擎：OpenAI `gpt-image-1`（`images/edits`），用 `OPENAI_API_KEY`（跟階段判定備援同一把，只放在伺服器端）。要換模型設環境變數 `OPENAI_IMAGE_MODEL`。圖片模型需要 OpenAI 組織完成驗證。
+- 引擎：OpenAI 圖片模型（`images/edits`），預設 `chatgpt-image-latest`（跟 ChatGPT 網頁版同一條線；`gpt-image-1` 細節粗糙很多，不建議）。頁面上可選這把金鑰能用的所有圖片模型（`GET /api/outfit` 列出）。用 `OPENAI_API_KEY`（跟階段判定備援同一把，只放在伺服器端）；也可設環境變數 `OPENAI_IMAGE_MODEL` 改預設。圖片模型需要 OpenAI 組織完成驗證。若模型不支援透明背景參數，會自動退回白底並在瀏覽器端去背。
 - 做法：以現有人物的「無頭身體、三個角度」當底圖（`site-source/lib/outfit-template.ts`），要求模型只換衣服，所以脖子、比例、手與鞋的大小沿用，不會畫出頭。
-- 品質：快速約 15–40 秒（約 US$0.02）、標準約 25–90 秒（約 US$0.07）、高品質最久也最貴。
+- 品質：快速、標準、高品質三檔；chatgpt-image-latest 標準品質實測約 21 秒、約 US$0.10，高品質更久也更貴。
 - 生成後自動量規格（`lib/outfit-check.ts`）：三個角度分開、高度與腳底線一致、正面／側面／背面寬度、脖子寬度與置中，並可下載原圖、規格化版本（三個角度同比例、腳底對齊）、單一角度。
 - 規格數值與提示詞：`lib/outfit-spec.ts`，與 `EMC-ART-Pixel-Office/docs/OUTFIT_SPEC.md` 同一份，改規格時兩邊一起改。
 - 驗證：沿用整個網站的團隊密碼（`ACCESS_PASSWORD`）。

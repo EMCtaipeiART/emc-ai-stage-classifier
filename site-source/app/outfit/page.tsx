@@ -6,7 +6,7 @@ import { analyzeOutfit, type Check as QaCheck, type ViewBox } from "@/lib/outfit
 import { formatTwd, formatUsd } from "@/lib/pricing";
 
 type Quality = "low" | "medium" | "high";
-type Generated = { id: string; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
+type Generated = { id: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
 
 const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
   { id: "low", label: "快速", hint: "約 20–40 秒，適合先看大概" },
@@ -19,6 +19,24 @@ const CELL = { w: 400, h: 392, body: 336, baseline: 364 };
 
 function loadImage(src: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("圖片載入失敗")); image.src = src; });
+}
+/** 模型沒給透明背景時，把從邊緣連起來的接近純白去掉（衣服裡的白色不會被連到）。 */
+function removeWhiteBackground(image: HTMLImageElement) {
+  const canvas = document.createElement("canvas"); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!; ctx.drawImage(image, 0, 0);
+  const frame = ctx.getImageData(0, 0, canvas.width, canvas.height), { data, width, height } = frame;
+  const near = (i: number) => data[i] > 236 && data[i + 1] > 236 && data[i + 2] > 236;
+  const seen = new Uint8Array(width * height), stack: number[] = [];
+  const push = (x: number, y: number) => { const k = y * width + x; if (!seen[k] && near(k * 4)) { seen[k] = 1; stack.push(k); } };
+  for (let x = 0; x < width; x += 1) { push(x, 0); push(x, height - 1); }
+  for (let y = 0; y < height; y += 1) { push(0, y); push(width - 1, y); }
+  while (stack.length) {
+    const k = stack.pop()!, x = k % width, y = (k - x) / width;
+    data[k * 4 + 3] = 0;
+    if (x > 0) push(x - 1, y); if (x < width - 1) push(x + 1, y); if (y > 0) push(x, y - 1); if (y < height - 1) push(x, y + 1);
+  }
+  ctx.putImageData(frame, 0, 0);
+  return canvas.toDataURL("image/png");
 }
 function download(url: string, name: string) { const a = document.createElement("a"); a.href = url; a.download = name; a.click(); }
 function cropCanvas(source: HTMLImageElement, box: ViewBox, pad = 4) {
@@ -43,6 +61,8 @@ export default function OutfitPage() {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [quality, setQuality] = useState<Quality>("medium");
+  const [models, setModels] = useState<string[]>([]);
+  const [model, setModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
@@ -52,6 +72,15 @@ export default function OutfitPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
+
+  // 這把金鑰能用的圖片模型（預設用 chatgpt-image-latest：跟 ChatGPT 網頁版同一條線；沒有就用清單最後一個）
+  useEffect(() => {
+    fetch("/api/outfit").then((response) => response.json() as Promise<{ models?: string[]; current?: string }>).then((payload) => {
+      const list = payload.models || [];
+      setModels(list);
+      setModel(list.includes("chatgpt-image-latest") ? "chatgpt-image-latest" : (payload.current && list.includes(payload.current) ? payload.current : list[list.length - 1] || ""));
+    }).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!loading) return;
@@ -84,15 +113,16 @@ export default function OutfitPage() {
     setLoading(true); setElapsed(0); setError("");
     try {
       const form = new FormData();
-      form.set("description", description.trim()); form.set("quality", quality);
+      form.set("description", description.trim()); form.set("quality", quality); if (model) form.set("model", model);
       files.forEach((file) => form.append("images", file));
       const response = await fetch("/api/outfit", { method: "POST", body: form });
       const raw = (await response.text()).trim();
-      let payload: { error?: string; image?: string; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
+      let payload: { error?: string; image?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
       try { payload = JSON.parse(raw); }
       catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）：${raw.slice(0, 80)}`); }
       if (!response.ok || payload.error || !payload.image) throw new Error(payload.error || "生成失敗，請稍後再試。");
-      const item: Generated = { id: crypto.randomUUID(), image: payload.image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成" };
+      const image = payload.transparent === false ? removeWhiteBackground(await loadImage(payload.image)) : payload.image;
+      const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成" };
       setItems((current) => [item, ...current].slice(0, 8)); setActiveId(item.id);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); }
     finally { setLoading(false); }
@@ -123,6 +153,7 @@ export default function OutfitPage() {
           <div className="under-field"><div className="chips">{EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setDescription(example)}>{example.split("、")[0]}…</button>)}</div><span>{description.length} / 600</span></div>
           <div className="source-box dropzone primary-source" onDragOver={(e) => e.preventDefault()} onDrop={onDrop} onClick={() => fileInput.current?.click()}><input ref={fileInput} hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} /><Upload size={24} /><div><strong>上傳服裝參考圖 <em>選填</em></strong><small>最多 2 張、每張 10MB 內；可以是衣服照片或設計稿。有上傳時，上面的文字會當成補充說明</small></div></div>
           {previews.length > 0 && <div className="previews">{previews.map(({ file, url }, index) => <div key={file.name + index}><img src={url} alt={file.name} /><button aria-label={`移除 ${file.name}`} onClick={(e) => { e.stopPropagation(); setFiles(files.filter((_, i) => i !== index)); }}><X size={14} /></button></div>)}</div>}
+          {models.length > 1 && <label className="model-row">圖片模型<select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
           <div className="quality-row" role="radiogroup" aria-label="品質">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
           {error && <p className="error" role="alert">{error}</p>}
           <button className="analyze" disabled={loading} onClick={generate}>{loading ? <><LoaderCircle className="spin" size={19} />生成中… 已 {elapsed} 秒</> : <><Sparkles size={19} />開始生成</>}</button>
