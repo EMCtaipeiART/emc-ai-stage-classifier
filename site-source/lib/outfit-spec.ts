@@ -18,6 +18,8 @@ HEADLESS - THIS IS THE MOST IMPORTANT RULE: the figures have NO head, NO face, N
 
 Change ONLY the clothing: the top, the bottom, the shoes and the graphics on them. If the new garments are shorter, longer or wider than the template's, reshape the garments (for example shorts show more leg, a long coat covers more), but never change the body, the neck or the hands.`;
 
+const BODY_LOCK = `BODY SHAPE LOCK: every figure keeps the template's body, never the body of any person in a photo. The template body is WIDE and CHUNKY, not slim: the front and back views are almost as wide as they are tall (arms held clearly away from the torso, width about 90-104% of the height), the side view is about 54-66% of the height wide; the legs are thick and the trousers loose and wide; the shoes are big and chunky; the upper body (neck to crotch) is only about 45% of the height. Do NOT make the figure taller, slimmer or more realistic than the template, and do not copy the slim fit of garments from photos: re-fit every garment onto the template body so it looks loose and boxy.`;
+
 const CONSISTENCY = `All three views must show the SAME outfit consistently (same colors, graphics, lengths, pocket positions). The back view must show a plausible back of the garment (the back of the neck is skin colored; do not draw the front neckline on the back). Keep clothing graphics simple and bold, never tiny details. The three views stay the same height with the soles of the shoes on the same baseline. Fully transparent background (if transparency is impossible, use a flat pure white background and never use pure white inside the clothes or shoes). No text, watermark, grid lines, labels or color swatches.`;
 
 /** 組出送給 OpenAI 的提示詞。hasPhoto：使用者另外附了服裝參考圖（第二張起）。 */
@@ -26,7 +28,13 @@ export function buildOutfitPrompt(description: string, hasPhoto: boolean) {
   const source = hasPhoto
     ? `NEW OUTFIT: the clothing shown in the additional attached image(s) after the template. Reproduce that clothing (colors, garment types, graphics) on the template figures. Extra notes from the user: ${outfit}`
     : `NEW OUTFIT: ${outfit}`;
-  return [TEMPLATE_RULES, source, CONSISTENCY].join("\n\n");
+  return [TEMPLATE_RULES, source, BODY_LOCK, CONSISTENCY].join("\n\n");
+}
+
+/** 比例不對時：把上一張結果當成「衣服」，重新套到標準身體上。 */
+export function buildRefitPrompt(note: string) {
+  const extra = note.trim() ? ` Extra notes from the user: ${note.trim()}` : "";
+  return [TEMPLATE_RULES, `NEW OUTFIT: the additional attached image is a DRAFT of this outfit whose body proportions are WRONG (too slim, too tall or too narrow). Keep the garments of the draft exactly (colors, patterns, accessories, shoes) but redraw them on the template's body with the correct proportions.${extra}`, BODY_LOCK, CONSISTENCY].join("\n\n");
 }
 
 // 圖片模型單價（美元／每 100 萬 tokens，以 gpt-image-1 的官方定價估算，只用來顯示「約」多少錢；實測 chatgpt-image-latest 標準品質一張約 US$0.10）

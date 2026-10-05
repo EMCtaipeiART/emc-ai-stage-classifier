@@ -108,13 +108,17 @@ export default function OutfitPage() {
   }
   function onDrop(event: DragEvent<HTMLDivElement>) { event.preventDefault(); addFiles(event.dataTransfer.files); }
 
-  async function generate() {
-    if (!description.trim() && !files.length) { setError("請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。"); return; }
+  async function generate(refit = false) {
+    if (!refit && !description.trim() && !files.length) { setError("請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。"); return; }
     setLoading(true); setElapsed(0); setError("");
     try {
       const form = new FormData();
       form.set("description", description.trim()); form.set("quality", quality); if (model) form.set("model", model);
-      files.forEach((file) => form.append("images", file));
+      if (refit && active) {
+        // 把目前這張當成「衣服」，要求重新套到標準身體上
+        form.set("mode", "refit");
+        form.append("images", await (await fetch(active.image)).blob(), "draft.png");
+      } else files.forEach((file) => form.append("images", file));
       const response = await fetch("/api/outfit", { method: "POST", body: form });
       const raw = (await response.text()).trim();
       let payload: { error?: string; image?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
@@ -156,7 +160,7 @@ export default function OutfitPage() {
           {models.length > 1 && <label className="model-row">圖片模型<select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
           <div className="quality-row" role="radiogroup" aria-label="品質">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
           {error && <p className="error" role="alert">{error}</p>}
-          <button className="analyze" disabled={loading} onClick={generate}>{loading ? <><LoaderCircle className="spin" size={19} />生成中… 已 {elapsed} 秒</> : <><Sparkles size={19} />開始生成</>}</button>
+          <button className="analyze" disabled={loading} onClick={() => void generate()}>{loading ? <><LoaderCircle className="spin" size={19} />生成中… 已 {elapsed} 秒</> : <><Sparkles size={19} />開始生成</>}</button>
           <p className="privacy">使用 OpenAI 圖片模型生成，需要付費；金鑰只保留在伺服器端。每次生成都以現有人物的無頭身體當底圖、只換衣服，所以比例會跟遊戲裡一致。</p>
         </section>
         <aside className="panel result-panel" aria-live="polite">
@@ -164,6 +168,7 @@ export default function OutfitPage() {
           {!active ? <div className="empty"><span><Shirt size={30} /></span><strong>{loading ? "正在生成三個角度" : "等待生成"}</strong><p>{loading ? "圖片模型畫一張約需 30 秒到 3 分鐘，請不要關閉頁面。" : "完成左側資料後，結果會顯示在這裡。"}</p></div> : <div className="result-content">
             <div className="outfit-preview"><img src={active.image} alt="生成的服裝三視圖" /></div>
             <div className="outfit-actions"><button className="accept" onClick={() => void saveSheet("original")}><Download size={16} />下載原圖</button><button onClick={() => void saveSheet("normalized")}><Download size={16} />下載規格化版本</button></div>
+            {!qa?.ok && <button className="refit" disabled={loading} onClick={() => void generate(true)}><Sparkles size={15} />比例不對？用這張的衣服重新套到標準身體（再生成一次）</button>}
             <div className="outfit-actions three">{["正面", "側面", "背面"].map((name, index) => <button key={name} disabled={!qa?.views[index]} onClick={() => void saveView(index)}><Download size={14} />{name}</button>)}</div>
             {qa && <div className="detail"><h3>規格檢查 <b className={qa.ok ? "qa-ok" : "qa-warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
               <ul className="qa-list">{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={15} /> : <TriangleAlert size={15} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>

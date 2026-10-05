@@ -1,4 +1,4 @@
-import { buildOutfitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, IMAGE_SIZE } from "@/lib/outfit-spec";
+import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, IMAGE_SIZE } from "@/lib/outfit-spec";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 
 export const runtime = "edge";
@@ -52,10 +52,12 @@ export async function POST(request: Request) {
   try { form = await request.formData(); } catch { return Response.json({ error: "請求格式不正確。" }, { status: 400 }); }
   const description = String(form.get("description") || "").trim().slice(0, 600);
   const quality = QUALITIES.includes(String(form.get("quality"))) ? String(form.get("quality")) : "medium";
+  const refit = String(form.get("mode")) === "refit";
   const photos = form.getAll("images").filter((value): value is File => typeof value !== "string").slice(0, 2);
   for (const photo of photos) {
     if (!/^image\/(png|jpeg|webp)$/.test(photo.type) || photo.size > 10 * 1024 * 1024) return Response.json({ error: "參考圖只接受 10MB 內的 PNG、JPG、WebP。" }, { status: 400 });
   }
+  if (refit && !photos.length) return Response.json({ error: "需要附上要修正的圖片。" }, { status: 400 });
   if (!description && !photos.length) return Response.json({ error: "請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。" }, { status: 400 });
 
   const requested = String(form.get("model") || "");
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
   const buildBody = (transparent: boolean) => {
   const body = new FormData();
   body.set("model", model);
-  body.set("prompt", buildOutfitPrompt(description, photos.length > 0));
+  body.set("prompt", refit ? buildRefitPrompt(description) : buildOutfitPrompt(description, photos.length > 0));
   body.set("size", IMAGE_SIZE);
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
