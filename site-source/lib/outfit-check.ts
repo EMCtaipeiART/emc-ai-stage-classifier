@@ -107,3 +107,13 @@ export function analyzeOutfit(p: Pixels): { views: ViewBox[]; checks: Check[]; o
 
   return { views, checks, ok: checks.every((c) => c.ok) };
 }
+
+/** 每個角度的頸頂位置（頭要接在這裡）：頸頂是這個角度最高的點，取最上面幾列的中心。 */
+export function detectNecks(p: Pixels, views: ViewBox[]): Array<{ x: number; y: number }> {
+  const opaque = makeOpaqueTest(p);
+  return views.map((v) => {
+    const H = v.y1 - v.y0;
+    const span = rowSpan(p, opaque, v, v.y0 + Math.max(2, Math.round(H * 0.015)));
+    return { x: span ? (span.min + span.max) / 2 : (v.x0 + v.x1) / 2, y: v.y0 };
+  });
+}

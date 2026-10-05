@@ -1,6 +1,7 @@
 import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, imageSizeFor } from "@/lib/outfit-spec";
 import { currentUser } from "@/lib/access";
-import { designApi, editorTokenOf } from "@/lib/coins-client";
+import { designApi, editorTokenOf, whoami } from "@/lib/coins-client";
+import { createDraft, getItem, setGeneration } from "@/lib/outfit-items";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
@@ -124,7 +125,17 @@ export async function POST(request: Request) {
   const editorToken = editorTokenOf(request);
   if (!editorToken) return Response.json({ error: "請從設計需求系統登入，再從左側選單的「服裝」進入這個頁面；生成需要設計師帳號的平台幣。", reason: "LOGIN_REQUIRED" }, { status: 401 });
   const generationId = crypto.randomUUID();
-  const reserve = await designApi("coinReserve", { editorToken, ref: generationId }, true);
+  // 同一件服裝重新生成（還沒完成的製作單）：只扣 100 點，結果換成這次的圖；沒帶 itemId 就是新的一件（200 點）
+  const itemId = String(form.get("itemId") || "");
+  let attempt = 1;
+  if (itemId) {
+    const who = await whoami(request);
+    const item = who ? await getItem(itemId) : null;
+    if (!who || !item || item.owner_account !== who.account || item.status !== "draft" || item.attempts < 1) return Response.json({ error: "這件服裝已經完成或找不到，無法重新生成；請開始新的一件。" }, { status: 409 });
+    attempt = item.attempts + 1;
+  }
+  const regenerate = Boolean(itemId);
+  const reserve = await designApi("coinReserve", { editorToken, ref: generationId, regenerate }, true);
   if (!reserve.ok) return Response.json({ error: reserve.error === "TOKEN_EXPIRED" ? "登入已過期，請回設計需求系統重新登入後再進入。" : (reserve.error || "平台幣扣款失敗"), reason: reserve.error === "TOKEN_EXPIRED" ? "TOKEN_EXPIRED" : "COIN" }, { status: reserve.error === "TOKEN_EXPIRED" ? 401 : 402 });
   const coin = { exempt: Boolean(reserve.exempt), charged: Number(reserve.charged) || 0, balance: Number(reserve.balance) || 0, holder: String(reserve.name || "") };
   const userId = coin.holder || String(reserve.account || (await currentUser(request)));
@@ -134,7 +145,7 @@ export async function POST(request: Request) {
     async start(controller) {
       const heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, HEARTBEAT_MS);
       const send = (payload: unknown) => controller.enqueue(encoder.encode(JSON.stringify(payload)));
-      const base = { id: generationId, userId, model, quality, description, described: "", photoCount: photos.length, transparent: true, coinCost: coin.charged, coinExempt: coin.exempt };
+      const base = { id: generationId, userId, model, quality, description, described: "", photoCount: photos.length, transparent: true, coinCost: coin.charged, coinExempt: coin.exempt, itemId, attempt };
       const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
       // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
       const fail = async (message: string) => {
@@ -176,10 +187,16 @@ export async function POST(request: Request) {
         const usage = { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: payload.usage?.total_tokens ?? 0, costUsd: estimateCostUsd(payload.usage) };
         const bytes = base64ToBlobBytes(b64);
         let recordWarning = "";
-        try { await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", png: bytes }); }
-        catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
+        let finalItemId = itemId;
+        try {
+          await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", png: bytes });
+          // 這次的結果掛到製作單上：新的一件就建立草稿，重新生成就換成這次的圖（之前的圖仍留在生成紀錄裡）
+          const text = [description, described].filter(Boolean).join("；");
+          if (itemId) await setGeneration(itemId, generationId, text);
+          else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId }); }
+        } catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
-          recordId: base.id, recordWarning, coin,
+          recordId: base.id, recordWarning, coin, itemId: finalItemId, attempt, regenerationCost: 100,
           image: `data:image/png;base64,${b64}`,
           model, quality, transparent, described,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,

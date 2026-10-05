@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { assetStorageReady, getAsset, putAsset } from "@/lib/storage";
+import { ensureItemsTable } from "@/lib/outfit-items";
 
 // 服裝生成紀錄（2026-10-05）：每次生成（成功與失敗）都記一筆；圖片存在 R2／KV，資料存在 D1。
 // 資料表在第一次用到時才建立（CREATE TABLE IF NOT EXISTS）：部署用的權杖沒有 D1 migration 的權限，
@@ -19,18 +20,19 @@ export type OutfitRecord = {
   description: string; described: string; photoCount: number; seconds: number;
   usage: { input: number; output: number; total: number; costUsd: number };
   transparent: boolean; error: string; png: Uint8Array | null;
-  coinCost: number; coinExempt: boolean;
+  coinCost: number; coinExempt: boolean; itemId: string; attempt: number;
 };
 
 export async function saveOutfitRecord(record: OutfitRecord) {
   await ensureTable();
+  await ensureItemsTable();
   let imageKey = "";
   if (record.png && assetStorageReady()) {
     imageKey = `outfit/${record.id}.png`;
     await putAsset(imageKey, record.png, "image/png");
   }
-  await env.DB!.prepare("INSERT INTO outfit_history (id, user_id, status, model, quality, description, described, photo_count, seconds, input_tokens, output_tokens, total_tokens, cost_usd, transparent, image_key, error, coin_cost, coin_exempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(record.id, record.userId, record.status, record.model, record.quality, record.description.slice(0, 1000), record.described.slice(0, 1000), record.photoCount, record.seconds, record.usage.input, record.usage.output, record.usage.total, record.usage.costUsd, record.transparent ? 1 : 0, imageKey, record.error.slice(0, 1500), record.coinCost, record.coinExempt ? 1 : 0)
+  await env.DB!.prepare("INSERT INTO outfit_history (id, user_id, status, model, quality, description, described, photo_count, seconds, input_tokens, output_tokens, total_tokens, cost_usd, transparent, image_key, error, coin_cost, coin_exempt, item_id, attempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(record.id, record.userId, record.status, record.model, record.quality, record.description.slice(0, 1000), record.described.slice(0, 1000), record.photoCount, record.seconds, record.usage.input, record.usage.output, record.usage.total, record.usage.costUsd, record.transparent ? 1 : 0, imageKey, record.error.slice(0, 1500), record.coinCost, record.coinExempt ? 1 : 0, record.itemId, record.attempt)
     .run();
 }
 
