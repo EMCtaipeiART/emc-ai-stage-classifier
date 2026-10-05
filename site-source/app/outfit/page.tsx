@@ -329,7 +329,7 @@ export default function OutfitPage() {
   }, [library, token]);
   const ownHeadIndex = () => { const at = HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]); return at >= 0 ? at : 0; };
   function enterFit(body: FitBody, nextFit: HeadFit, name: string, isDefault: boolean) {
-    setFitBody(body); setFit(nextFit); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
+    setFitBody(body); setFit({ ...nextFit, headIndex: ownHeadIndex() }); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   /** 剛生成好 → 進入「套上大頭」。 */
@@ -452,7 +452,7 @@ export default function OutfitPage() {
             <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
             <div className="preview-bottom"><span>頭像是用遊戲裡的設計師頭像套上去的；上下左右與大小調到跟遊戲裡的人物一樣自然就好。</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
             <div className="fit-controls">
-              <div className="fit-row"><span>頭像</span><div className="chips">{HEAD_NAMES.map((name, index) => <button key={name} className={fit.headIndex === index ? "on" : ""} onClick={() => setFit({ ...fit, headIndex: index })}>{name}</button>)}</div></div>
+              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.designer ? `${HEAD_NAMES[fit.headIndex]}（本人）· 自己做的服裝只有自己能穿，所以固定用自己的頭` : "預覽用（沒有設計師身分，這件服裝不會進元宇宙）"}</div></div>
               <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ["正面", 0], ["側面", 1], ["背面", 2]] as Array<[string, 0 | 1 | 2 | 3]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
               <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="頭往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-80} max={80} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="頭的上下位置" /><button aria-label="頭往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><b>{fitValue("dy")}</b></div></div>
               <div className="fit-row"><span>左右</span><div className="nudge"><button aria-label="頭往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-60} max={60} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="頭的左右位置" /><button aria-label="頭往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><b>{fitValue("dx")}</b></div></div>
