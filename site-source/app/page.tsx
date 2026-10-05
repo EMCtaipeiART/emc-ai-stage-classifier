@@ -125,7 +125,7 @@ export default function Home() {
   const tone = stageTone(result?.stage);
 
   return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">E</span><span>EMC AI 階段判定器<small>DESIGN REQUEST ASSISTANT</small></span></div><span className="service"><i />AI 判定服務{accessProtected && <a className="logout" href="/api/logout">登出</a>}</span></header>
+    <header className="topbar"><div className="brand"><span className="brand-mark">E</span><span>EMC AI 階段判定器<small>DESIGN REQUEST ASSISTANT</small></span></div><span className="service"><a className="logout" href="/outfit">服裝生成器</a><i />AI 判定服務{accessProtected && <a className="logout" href="/api/logout">登出</a>}</span></header>
     <section className="page">
       <div className="intro"><div><h1>這個案件是新製，還是再製？</h1><p>上傳截圖最準確；若沒有截圖，也可貼上公開的 Google Slides。</p></div><button className="rule-link" onClick={() => setRulesOpen(true)}>查看判定規則 <ChevronRight size={17} /></button></div>
       <div className="workspace">
