@@ -6,6 +6,10 @@ import { analyzeOutfit, type Check as QaCheck, type ViewBox } from "@/lib/outfit
 import { formatTwd, formatUsd } from "@/lib/pricing";
 
 type Quality = "low" | "medium" | "high";
+type HistoryRecord = { id: string; createdAt: string; userId: string; status: string; model: string; quality: string; description: string; described: string; photoCount: number; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; transparent: boolean; error: string; imageUrl: string };
+// D1 的 CURRENT_TIMESTAMP 是不帶時區的 UTC 字串
+const formatTime = (value: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value.replace(" ", "T")}Z`).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
+const userLabel = (id: string) => id === "team-password" ? "團隊密碼" : id === "local-user" ? "本機" : id;
 type Generated = { id: string; described?: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
 
 const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
@@ -68,10 +72,29 @@ export default function OutfitPage() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Generated[]>([]);
   const [activeId, setActiveId] = useState("");
+  const [records, setRecords] = useState<HistoryRecord[]>([]);
+  const [totals, setTotals] = useState({ runs: 0, ok: 0, tokens: 0, costUsd: 0 });
+  const [historyError, setHistoryError] = useState("");
   const [qa, setQa] = useState<{ checks: QaCheck[]; views: ViewBox[]; ok: boolean } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
+
+  async function loadHistory() {
+    try {
+      const response = await fetch("/api/outfit/history");
+      const payload = await response.json() as { items?: HistoryRecord[]; totals?: typeof totals; error?: string };
+      if (!response.ok) throw new Error(payload.error || "讀取紀錄失敗");
+      setRecords(payload.items || []); setTotals(payload.totals || { runs: 0, ok: 0, tokens: 0, costUsd: 0 }); setHistoryError("");
+    } catch (cause) { setHistoryError(cause instanceof Error ? cause.message : "讀取紀錄失敗"); }
+  }
+  useEffect(() => { void loadHistory(); }, []);
+  function openRecord(record: HistoryRecord) {
+    if (!record.imageUrl) return;
+    const item: Generated = { id: record.id, image: record.imageUrl, model: record.model, quality: record.quality as Quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
+    setItems((current) => [item, ...current.filter((existing) => existing.id !== record.id)].slice(0, 8)); setActiveId(record.id);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   // 這把金鑰能用的圖片模型（預設用後端指定的模型 gpt-image-2.5-sunburst）
   useEffect(() => {
@@ -128,7 +151,8 @@ export default function OutfitPage() {
       const image = payload.transparent === false ? removeWhiteBackground(await loadImage(payload.image)) : payload.image;
       const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成", described: payload.described || "" };
       setItems((current) => [item, ...current].slice(0, 8)); setActiveId(item.id);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); }
+      void loadHistory();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); void loadHistory(); }
     finally { setLoading(false); }
   }
 
@@ -178,6 +202,18 @@ export default function OutfitPage() {
           </div>}
         </aside>
       </div>
+      <section className="panel history-panel"><div className="history-heading"><div><span><Shirt size={20} /></span><div><h2>生成紀錄</h2><p>每次生成（成功與失敗）都會記錄，圖片也會保存，可以隨時重新打開。</p></div></div><button onClick={() => void loadHistory()}>重新整理</button></div>
+        <p className="outfit-totals">共 {totals.runs} 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）</p>
+        {historyError && <p className="error">{historyError}</p>}
+        {!records.length && !historyError ? <p className="history-empty">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="outfit-records">{records.map((record) => <article key={record.id} className={`outfit-record ${record.status}`}>
+          {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><img src={record.imageUrl} alt={record.description || "生成結果"} loading="lazy" /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
+          <div className="record-main"><div className="history-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · {QUALITIES.find((q) => q.id === record.quality)?.label || record.quality}</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
+            <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
+            {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
+            {record.described && record.description && <small>AI 讀到的衣服：{record.described}</small>}</div>
+          {record.imageUrl && <button className="view-history" onClick={() => openRecord(record)}>重新打開</button>}
+        </article>)}</div>}
+      </section>
       {items.length > 1 && <section className="panel history-panel"><div className="history-heading"><div><span><Shirt size={20} /></span><div><h2>這次拜訪生成的版本</h2><p>只保留在這個頁面，重新整理就會消失，要用的請先下載。</p></div></div></div>
         <div className="outfit-history">{items.map((item) => <button key={item.id} className={item.id === activeId ? "on" : ""} onClick={() => setActiveId(item.id)}><img src={item.image} alt={item.label} /><span>{item.label}</span></button>)}</div></section>}
     </section>

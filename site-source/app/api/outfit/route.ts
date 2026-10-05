@@ -1,4 +1,6 @@
 import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, imageSizeFor } from "@/lib/outfit-spec";
+import { currentUser } from "@/lib/access";
+import { saveOutfitRecord } from "@/lib/outfit-history";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 
@@ -9,6 +11,13 @@ export const runtime = "edge";
 const HEARTBEAT_MS = 8000;
 const OPENAI_TIMEOUT_MS = 240_000;
 const QUALITIES = ["low", "medium", "high"];
+
+function base64ToBlobBytes(base64: string) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
 
 function base64ToBlob(base64: string, type: string) {
   const binary = atob(base64);
@@ -110,12 +119,20 @@ export async function POST(request: Request) {
   return body;
   };
 
+  const userId = await currentUser(request);
   const encoder = new TextEncoder();
   const startedAt = Date.now();
   const stream = new ReadableStream({
     async start(controller) {
       const heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, HEARTBEAT_MS);
       const send = (payload: unknown) => controller.enqueue(encoder.encode(JSON.stringify(payload)));
+      const base = { id: crypto.randomUUID(), userId, model, quality, description, described: "", photoCount: photos.length, transparent: true };
+      const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
+      // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
+      const fail = async (message: string) => {
+        await saveOutfitRecord({ ...base, status: "failed", seconds: seconds(), usage: { input: 0, output: 0, total: 0, costUsd: 0 }, error: message, png: null }).catch(() => undefined);
+        send({ error: message, recordId: base.id });
+      };
       try {
         let described = "";
         if (!refit && photos.length) {
@@ -139,10 +156,16 @@ export async function POST(request: Request) {
           response = await call(false);
           payload = await response.json().catch(() => ({})) as Payload;
         }
-        if (!response.ok) { send({ error: friendlyError(response.status, payload.error?.message || "") }); return; }
+        if (!response.ok) { await fail(friendlyError(response.status, payload.error?.message || "")); return; }
         const b64 = payload.data?.[0]?.b64_json;
-        if (!b64) { send({ error: "OpenAI 沒有回傳圖片，請再試一次。" }); return; }
+        if (!b64) { await fail("OpenAI 沒有回傳圖片，請再試一次。"); return; }
+        const usage = { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: payload.usage?.total_tokens ?? 0, costUsd: estimateCostUsd(payload.usage) };
+        const bytes = base64ToBlobBytes(b64);
+        let recordWarning = "";
+        try { await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", png: bytes }); }
+        catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
+          recordId: base.id, recordWarning,
           image: `data:image/png;base64,${b64}`,
           model, quality, transparent, described,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,
@@ -150,7 +173,7 @@ export async function POST(request: Request) {
         });
       } catch (cause) {
         const timedOut = cause instanceof DOMException && cause.name === "TimeoutError";
-        send({ error: timedOut ? "生成逾時（超過 4 分鐘），請改用較低的品質再試。" : (cause instanceof Error ? cause.message : "生成失敗，請稍後再試。") });
+        await fail(timedOut ? "生成逾時（超過 4 分鐘），請改用較低的品質再試。" : (cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"));
       } finally {
         clearInterval(heartbeat);
         controller.close();

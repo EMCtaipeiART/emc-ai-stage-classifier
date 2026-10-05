@@ -79,3 +79,9 @@ export async function authorize(request: Request, cookieValue?: string): Promise
   }
   return null;
 }
+
+/** 目前登入者的代號（紀錄用）：已登入帳號用帳號名，團隊密碼登入是 "team-password"，本機沒設密碼是 "local-user"。 */
+export async function currentUser(request: Request): Promise<string> {
+  const cookie = (request.headers.get("cookie") || "").split(/;\s*/).find((part) => part.startsWith(`${AUTH_COOKIE}=`));
+  return (await authorize(request, cookie ? cookie.slice(AUTH_COOKIE.length + 1) : undefined).catch(() => null)) || "unknown";
+}
