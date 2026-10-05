@@ -22,7 +22,7 @@ const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
 const EXAMPLES = ["紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋", "橘色連帽衫、淺色寬牛仔褲、黑色高筒帆布鞋", "灰色針織背心、白襯衫、卡其長褲、棕色短靴"];
 type Bg = "check" | "light" | "dark";
 type FitView = { x0: number; y0: number; x1: number; y1: number; neckX: number; neckY: number };
-type Item = { id: string; name: string; status: "draft" | "completed"; isDefault: boolean; description: string; attempts: number; head: HeadFit | null; views: FitView[] | null; createdAt: string; updatedAt: string; completedAt: string | null; coverUrl: string; bodyUrl: string };
+type Item = { id: string; name: string; status: "draft" | "completed"; isDefault: boolean; description: string; attempts: number; head: HeadFit | null; views: FitView[] | null; createdAt: string; updatedAt: string; completedAt: string | null; coverUrl: string; bodyUrl: string; published: boolean };
 type FitBody = { img: HTMLImageElement; views: FitView[] };
 const REGEN_COST = 100;
 const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("圖片載入失敗")); image.src = src; });
@@ -55,6 +55,18 @@ function transparentCopy(image: HTMLImageElement): HTMLImageElement | Promise<HT
   const ctx = probe.getContext("2d", { willReadFrequently: true })!; ctx.drawImage(image, 0, 0);
   if (ctx.getImageData(0, 0, 1, 1).data[3] < 250 || ctx.getImageData(image.naturalWidth - 1, 0, 1, 1).data[3] < 250) return image;
   return loadImageSrc(removeWhiteBackground(image));
+}
+/** 發佈給 Pixel Office：三個角度各裁成「身體高 336」的透明圖（遊戲圖集身體高 168 的兩倍），加上尺寸與頸頂位置。 */
+function buildGameAssets(body: FitBody, fit: HeadFit) {
+  const viewImages: string[] = [], views: Array<{ w: number; h: number; n: number }> = [];
+  body.views.forEach((v) => {
+    const f = (BODY_REF_HEIGHT * 2) / (v.y1 - v.y0), w = Math.round((v.x1 - v.x0) * f), h = Math.round((v.y1 - v.y0) * f);
+    const canvas = document.createElement("canvas"); canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d")!; ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(body.img, v.x0, v.y0, v.x1 - v.x0, v.y1 - v.y0, 0, 0, w, h);
+    viewImages.push(canvas.toDataURL("image/png")); views.push({ w, h, n: Math.round((v.neckX - v.x0) * f * 10) / 10 });
+  });
+  return { game: { views, head: fit }, viewImages };
 }
 async function prepareBody(src: string): Promise<FitBody> {
   const img = await transparentCopy(await loadImageSrc(src));
@@ -300,6 +312,21 @@ export default function OutfitPage() {
     } catch (cause) { setLibraryNote(cause instanceof Error ? cause.message : "讀取我的服裝失敗"); }
   }
   useEffect(() => { void loadLibrary(); }, [token]);
+  // 以前（發佈功能上線前）完成的服裝：自動補發佈到 Pixel Office，不用使用者重新儲存
+  const publishTried = useRef(new Set<string>());
+  useEffect(() => {
+    const pending = library.find((entry) => entry.status === "completed" && !entry.published && entry.bodyUrl && !publishTried.current.has(entry.id));
+    if (!pending || !token) return;
+    publishTried.current.add(pending.id);
+    (async () => {
+      try {
+        const blobUrl = await fetch(pending.bodyUrl, { headers: authHeaders() }).then((response) => response.blob()).then((blob) => URL.createObjectURL(blob));
+        const body = await prepareBody(blobUrl);
+        const response = await fetch(`/api/outfit/items/${pending.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(buildGameAssets(body, pending.head || defaultHeadFit(HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]) >= 0 ? HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]) : 0))) });
+        if (response.ok) { setLibraryNote(`「${pending.name}」已發佈到元宇宙造型欄`); await loadLibrary(); }
+      } catch { /* 下次重新整理再試 */ }
+    })();
+  }, [library, token]);
   const ownHeadIndex = () => { const at = HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]); return at >= 0 ? at : 0; };
   function enterFit(body: FitBody, nextFit: HeadFit, name: string, isDefault: boolean) {
     setFitBody(body); setFit(nextFit); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
@@ -333,7 +360,7 @@ export default function OutfitPage() {
     setFitBusy(true); setError("");
     try {
       const cover = composeFit(fitBody, headsImg, fit).toDataURL("image/png");
-      const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete }) });
+      const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
       setJob({ ...job, status: complete || job.status === "completed" ? "completed" : "draft" });
@@ -470,7 +497,7 @@ export default function OutfitPage() {
         <p className="history-total">完成製作的服裝可以設為預設、編輯（調整頭的位置、改名字）或刪除；製作中的可以繼續做。{libraryNote && <b> ｜ {libraryNote}</b>}</p>
         {!library.length ? <p className="empty-note">還沒有服裝。生成一件、套上大頭並完成製作後，會出現在這裡。</p> : <div className="library">{library.map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
           <div className="lib-thumb"><AuthImage url={item.coverUrl || item.bodyUrl} token={token} alt={item.name || "服裝"} /></div>
-          <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong>{item.isDefault && <span className="badge-default"><Star size={11} /> 預設</span>}<span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span></div>
+          <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong>{item.isDefault && <span className="badge-default"><Star size={11} /> 預設</span>}<span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span>{item.status === "completed" && <span className={`badge-status ${item.published ? "completed" : ""}`}>{item.published ? "已在元宇宙造型欄" : "發佈中…"}</span>}</div>
             <small>{item.description || "—"}</small><small>更新 {formatTime(item.updatedAt)} · 生成 {item.attempts} 次</small></div>
           <div className="lib-actions"><button onClick={() => void openItem(item)}><Pencil size={13} />{item.status === "completed" ? "編輯" : "繼續製作"}</button>{item.status === "completed" && <button onClick={() => void toggleDefault(item)}><Star size={13} />{item.isDefault ? "取消預設" : "設為預設"}</button>}<button onClick={() => void downloadCover(item)}><Download size={13} />下載</button><button className="danger" onClick={() => void removeItem(item)}><Trash2 size={13} />刪除</button></div>
         </article>)}</div>}

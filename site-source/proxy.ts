@@ -11,7 +11,8 @@ export async function proxy(request: NextRequest) {
 
   if (request.method === "OPTIONS" && cors) return new NextResponse(null, { status: 204, headers: cors });
 
-  if (!PUBLIC_PATHS.has(pathname) && !await authorize(request, request.cookies.get(AUTH_COOKIE)?.value)) {
+  // /api/public/ 是給 Pixel Office 遊戲讀的公開資料（已發佈的服裝），不需要登入
+  if (!PUBLIC_PATHS.has(pathname) && !pathname.startsWith("/api/public/") && !await authorize(request, request.cookies.get(AUTH_COOKIE)?.value)) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "需要登入：請輸入團隊密碼。", reason: "AUTH_REQUIRED" }, { status: 401, headers: cors ?? undefined });
     }

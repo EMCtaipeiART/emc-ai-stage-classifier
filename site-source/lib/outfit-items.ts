@@ -10,12 +10,14 @@ export function ensureItemsTable() {
   ready ||= env.DB.exec("CREATE TABLE IF NOT EXISTS outfit_items (id TEXT PRIMARY KEY, owner_account TEXT NOT NULL, owner_name TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft', is_default INTEGER NOT NULL DEFAULT 0, description TEXT NOT NULL DEFAULT '', generation_id TEXT NOT NULL DEFAULT '', attempts INTEGER NOT NULL DEFAULT 0, head_json TEXT NOT NULL DEFAULT '', views_json TEXT NOT NULL DEFAULT '', cover_key TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, completed_at TEXT, deleted_at TEXT)")
     .then(async () => {
       for (const column of ["item_id TEXT NOT NULL DEFAULT ''", "attempt INTEGER NOT NULL DEFAULT 1"]) await env.DB!.exec(`ALTER TABLE outfit_history ADD COLUMN ${column}`).catch(() => undefined);
+      // 發佈給 Pixel Office 遊戲用的資料（三個角度裁好的身體圖尺寸、頸頂位置、頭的設定）；沒有就是還沒發佈
+      await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN game_json TEXT NOT NULL DEFAULT ''").catch(() => undefined);
     })
     .catch((error) => { ready = null; throw error; });
   return ready;
 }
 
-export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
+export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; game_json: string; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
 
 export function itemPublic(row: ItemRow) {
   const parse = (value: string) => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
@@ -23,6 +25,7 @@ export function itemPublic(row: ItemRow) {
     id: row.id, name: row.name, status: row.status, isDefault: Boolean(row.is_default), description: row.description, attempts: row.attempts,
     head: parse(row.head_json), views: parse(row.views_json), ownerName: row.owner_name, ownerAccount: row.owner_account,
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at,
+    game: parse(row.game_json), published: Boolean(row.game_json),
     coverUrl: row.cover_key ? `/api/outfit/items/${row.id}/cover` : "",
     bodyUrl: row.generation_id ? `/api/outfit/history/${row.generation_id}/image` : "",
   };
@@ -49,18 +52,23 @@ export async function setGeneration(id: string, generationId: string, descriptio
   await env.DB!.prepare("UPDATE outfit_items SET generation_id = ?, attempts = attempts + 1, description = CASE WHEN ? != '' THEN ? ELSE description END, head_json = '', views_json = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(generationId, description.slice(0, 1000), description.slice(0, 1000), id).run();
 }
 
-export type ItemUpdate = { name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null };
+export type ItemUpdate = { name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null; game?: unknown; viewImages?: Uint8Array[] | null };
 
 export async function updateItem(row: ItemRow, update: ItemUpdate) {
   await ensureItemsTable();
   let coverKey = row.cover_key;
   if (update.cover && assetStorageReady()) { coverKey = `outfit-item/${row.id}-cover.png`; await putAsset(coverKey, update.cover, "image/png"); }
+  let gameJson = row.game_json;
+  if (update.game !== undefined && update.viewImages && update.viewImages.length === 3 && assetStorageReady()) {
+    for (let index = 0; index < 3; index += 1) await putAsset(`outfit-item/${row.id}-v${index}.png`, update.viewImages[index], "image/png");
+    gameJson = JSON.stringify(update.game);
+  }
   const status = update.complete ? "completed" : row.status;
   const isDefault = status === "completed" ? (update.isDefault === undefined ? Boolean(row.is_default) : update.isDefault) : false;
   const statements = [];
   if (isDefault) statements.push(env.DB!.prepare("UPDATE outfit_items SET is_default = 0 WHERE owner_account = ? AND id != ?").bind(row.owner_account, row.id));
-  statements.push(env.DB!.prepare("UPDATE outfit_items SET name = ?, status = ?, is_default = ?, head_json = ?, views_json = ?, cover_key = ?, updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? = 'completed' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id = ?")
-    .bind(update.name === undefined ? row.name : update.name, status, isDefault ? 1 : 0, update.head === undefined ? row.head_json : JSON.stringify(update.head), update.views === undefined ? row.views_json : JSON.stringify(update.views), coverKey, status, row.id));
+  statements.push(env.DB!.prepare("UPDATE outfit_items SET name = ?, status = ?, is_default = ?, head_json = ?, views_json = ?, cover_key = ?, game_json = ?, updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? = 'completed' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id = ?")
+    .bind(update.name === undefined ? row.name : update.name, status, isDefault ? 1 : 0, update.head === undefined ? row.head_json : JSON.stringify(update.head), update.views === undefined ? row.views_json : JSON.stringify(update.views), coverKey, gameJson, status, row.id));
   await env.DB!.batch(statements);
 }
 
@@ -71,4 +79,21 @@ export async function deleteItem(row: ItemRow) {
 
 export async function itemCover(row: ItemRow): Promise<ReadableStream | null> {
   return row.cover_key ? getAsset(row.cover_key) : null;
+}
+
+/** Pixel Office 遊戲用：已完成、已發佈、有設計師名字的服裝（公開，不含帳號）。 */
+export async function listPublishedItems() {
+  await ensureItemsTable();
+  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' ORDER BY updated_at DESC LIMIT 300").all<ItemRow>();
+  return (results || []).map((row) => {
+    let game = null;
+    try { game = JSON.parse(row.game_json); } catch { /* 壞掉的就略過 */ }
+    return { id: row.id, name: row.name, owner: row.owner_name, isDefault: Boolean(row.is_default), game, v: row.updated_at };
+  }).filter((entry) => entry.game);
+}
+
+export async function publishedViewImage(id: string, view: number): Promise<ReadableStream | null> {
+  const row = await getItem(id);
+  if (!row || row.status !== "completed" || !row.game_json || view < 0 || view > 2) return null;
+  return getAsset(`outfit-item/${id}-v${view}.png`);
 }
