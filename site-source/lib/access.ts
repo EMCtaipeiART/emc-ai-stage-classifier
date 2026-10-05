@@ -10,7 +10,7 @@ export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 export const ACCESS_HEADER = "x-emc-access";
 export const EDITOR_TOKEN_HEADER = "x-emc-editor-token";
 
-const DESIGN_API_URL = "https://machi-design-api.machi-chen.workers.dev/api";
+const designApiUrl = () => process.env.DESIGN_API_URL || "https://machi-design-api.machi-chen.workers.dev/api"; // DESIGN_API_URL 只在本機測試時用來指向假的後端
 const DEFAULT_ALLOWED_ORIGINS = ["https://emctaipeiart.github.io"];
 const EDITOR_CACHE_MS = 5 * 60 * 1000;
 const editorTokenCache = new Map<string, { account: string; expiresAt: number }>();
@@ -59,7 +59,7 @@ async function verifyEditorToken(token: string): Promise<string> {
   // 同一個 Cloudflare 帳號的 Worker 互打 workers.dev 可能被擋，部署時用 Service Binding
   const response = env.DESIGN_API
     ? await env.DESIGN_API.fetch("https://machi-design-api/api", init)
-    : await fetch(DESIGN_API_URL, init);
+    : await fetch(designApiUrl(), init);
   const payload = await response.json().catch(() => ({})) as { ok?: boolean; account?: string; user?: string };
   const account = payload.ok ? String(payload.account || payload.user || "") : "";
   if (account) editorTokenCache.set(token, { account, expiresAt: Date.now() + EDITOR_CACHE_MS });

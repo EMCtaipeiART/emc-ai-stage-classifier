@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { allowedOrigin, authorize, AUTH_COOKIE, corsHeaders } from "@/lib/access";
 
-const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/logout", "/favicon.svg"]);
+// /outfit 只是頁面外殼（沒有任何資料）：設計需求系統的 token 在網址 # 後面，瀏覽器導覽時帶不了標頭，所以頁面本身不擋，資料與生成的 API 一律要驗證。
+const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/logout", "/favicon.svg", "/outfit"]);
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

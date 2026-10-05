@@ -7,7 +7,10 @@ import { assetStorageReady, getAsset, putAsset } from "@/lib/storage";
 let tableReady: Promise<void> | null = null;
 function ensureTable() {
   if (!env.DB) throw new Error("歷史紀錄儲存空間尚未啟用。");
-  tableReady ||= env.DB.exec("CREATE TABLE IF NOT EXISTS outfit_history (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL, model TEXT, quality TEXT, description TEXT, described TEXT, photo_count INTEGER NOT NULL DEFAULT 0, seconds REAL, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, transparent INTEGER, image_key TEXT, error TEXT)").then(() => undefined).catch((error) => { tableReady = null; throw error; });
+  tableReady ||= env.DB.exec("CREATE TABLE IF NOT EXISTS outfit_history (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, status TEXT NOT NULL, model TEXT, quality TEXT, description TEXT, described TEXT, photo_count INTEGER NOT NULL DEFAULT 0, seconds REAL, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, transparent INTEGER, image_key TEXT, error TEXT)").then(async () => {
+    // 後來才加的欄位：已經存在就會報錯，忽略即可
+    for (const column of ["coin_cost REAL NOT NULL DEFAULT 0", "coin_exempt INTEGER NOT NULL DEFAULT 0"]) await env.DB!.exec(`ALTER TABLE outfit_history ADD COLUMN ${column}`).catch(() => undefined);
+  }).catch((error) => { tableReady = null; throw error; });
   return tableReady;
 }
 
@@ -16,6 +19,7 @@ export type OutfitRecord = {
   description: string; described: string; photoCount: number; seconds: number;
   usage: { input: number; output: number; total: number; costUsd: number };
   transparent: boolean; error: string; png: Uint8Array | null;
+  coinCost: number; coinExempt: boolean;
 };
 
 export async function saveOutfitRecord(record: OutfitRecord) {
@@ -25,12 +29,12 @@ export async function saveOutfitRecord(record: OutfitRecord) {
     imageKey = `outfit/${record.id}.png`;
     await putAsset(imageKey, record.png, "image/png");
   }
-  await env.DB!.prepare("INSERT INTO outfit_history (id, user_id, status, model, quality, description, described, photo_count, seconds, input_tokens, output_tokens, total_tokens, cost_usd, transparent, image_key, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(record.id, record.userId, record.status, record.model, record.quality, record.description.slice(0, 1000), record.described.slice(0, 1000), record.photoCount, record.seconds, record.usage.input, record.usage.output, record.usage.total, record.usage.costUsd, record.transparent ? 1 : 0, imageKey, record.error.slice(0, 1500))
+  await env.DB!.prepare("INSERT INTO outfit_history (id, user_id, status, model, quality, description, described, photo_count, seconds, input_tokens, output_tokens, total_tokens, cost_usd, transparent, image_key, error, coin_cost, coin_exempt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(record.id, record.userId, record.status, record.model, record.quality, record.description.slice(0, 1000), record.described.slice(0, 1000), record.photoCount, record.seconds, record.usage.input, record.usage.output, record.usage.total, record.usage.costUsd, record.transparent ? 1 : 0, imageKey, record.error.slice(0, 1500), record.coinCost, record.coinExempt ? 1 : 0)
     .run();
 }
 
-type Row = { id: string; user_id: string; created_at: string; status: string; model: string; quality: string; description: string; described: string; photo_count: number; seconds: number; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; transparent: number; image_key: string; error: string };
+type Row = { id: string; user_id: string; created_at: string; status: string; model: string; quality: string; description: string; described: string; photo_count: number; seconds: number; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; transparent: number; image_key: string; error: string; coin_cost: number; coin_exempt: number };
 
 export async function listOutfitHistory(limit = 50) {
   await ensureTable();
@@ -40,7 +44,7 @@ export async function listOutfitHistory(limit = 50) {
     id: row.id, createdAt: row.created_at, userId: row.user_id, status: row.status, model: row.model, quality: row.quality,
     description: row.description, described: row.described, photoCount: row.photo_count, seconds: row.seconds,
     usage: { input: row.input_tokens, output: row.output_tokens, total: row.total_tokens, costUsd: row.cost_usd },
-    transparent: Boolean(row.transparent), error: row.error, imageUrl: row.image_key ? `/api/outfit/history/${row.id}/image` : "",
+    transparent: Boolean(row.transparent), error: row.error, coinCost: row.coin_cost || 0, coinExempt: Boolean(row.coin_exempt), imageUrl: row.image_key ? `/api/outfit/history/${row.id}/image` : "",
   }));
   return { items, totals: { runs: totals?.runs ?? 0, ok: totals?.ok ?? 0, tokens: totals?.tokens ?? 0, costUsd: totals?.cost ?? 0 } };
 }

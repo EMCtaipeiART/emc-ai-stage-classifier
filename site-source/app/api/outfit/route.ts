@@ -1,5 +1,6 @@
 import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, imageSizeFor } from "@/lib/outfit-spec";
 import { currentUser } from "@/lib/access";
+import { designApi, editorTokenOf } from "@/lib/coins-client";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
@@ -119,19 +120,32 @@ export async function POST(request: Request) {
   return body;
   };
 
-  const userId = await currentUser(request);
+  // 平台幣：要用設計系統帳號（有 token）才能生成；先扣 200 點，沒有成功就退回。管理員（沒有設計師身分）不扣點。
+  const editorToken = editorTokenOf(request);
+  if (!editorToken) return Response.json({ error: "請從設計需求系統登入，再從左側選單的「服裝」進入這個頁面；生成需要設計師帳號的平台幣。", reason: "LOGIN_REQUIRED" }, { status: 401 });
+  const generationId = crypto.randomUUID();
+  const reserve = await designApi("coinReserve", { editorToken, ref: generationId }, true);
+  if (!reserve.ok) return Response.json({ error: reserve.error === "TOKEN_EXPIRED" ? "登入已過期，請回設計需求系統重新登入後再進入。" : (reserve.error || "平台幣扣款失敗"), reason: reserve.error === "TOKEN_EXPIRED" ? "TOKEN_EXPIRED" : "COIN" }, { status: reserve.error === "TOKEN_EXPIRED" ? 401 : 402 });
+  const coin = { exempt: Boolean(reserve.exempt), charged: Number(reserve.charged) || 0, balance: Number(reserve.balance) || 0, holder: String(reserve.name || "") };
+  const userId = coin.holder || String(reserve.account || (await currentUser(request)));
   const encoder = new TextEncoder();
   const startedAt = Date.now();
   const stream = new ReadableStream({
     async start(controller) {
       const heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, HEARTBEAT_MS);
       const send = (payload: unknown) => controller.enqueue(encoder.encode(JSON.stringify(payload)));
-      const base = { id: crypto.randomUUID(), userId, model, quality, description, described: "", photoCount: photos.length, transparent: true };
+      const base = { id: generationId, userId, model, quality, description, described: "", photoCount: photos.length, transparent: true, coinCost: coin.charged, coinExempt: coin.exempt };
       const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
       // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
       const fail = async (message: string) => {
-        await saveOutfitRecord({ ...base, status: "failed", seconds: seconds(), usage: { input: 0, output: 0, total: 0, costUsd: 0 }, error: message, png: null }).catch(() => undefined);
-        send({ error: message, recordId: base.id });
+        // 沒有成功：先把這次扣的平台幣退回（只有這個站能退），再記錄
+        let refunded = false;
+        if (!coin.exempt) {
+          const refund = await designApi("coinRefund", { ref: generationId, reason: message.slice(0, 60) }, true).catch(() => null);
+          refunded = Boolean(refund?.ok && (refund.refunded || refund.reason === "already-refunded"));
+        }
+        await saveOutfitRecord({ ...base, coinCost: refunded ? 0 : coin.charged, status: "failed", seconds: seconds(), usage: { input: 0, output: 0, total: 0, costUsd: 0 }, error: message, png: null }).catch(() => undefined);
+        send({ error: message + (refunded ? "（已退回這次扣的平台幣）" : ""), recordId: base.id, coin: { ...coin, refunded } });
       };
       try {
         let described = "";
@@ -165,7 +179,7 @@ export async function POST(request: Request) {
         try { await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", png: bytes }); }
         catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
-          recordId: base.id, recordWarning,
+          recordId: base.id, recordWarning, coin,
           image: `data:image/png;base64,${b64}`,
           model, quality, transparent, described,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,

@@ -20,6 +20,21 @@ const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
 ];
 const EXAMPLES = ["紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋", "橘色連帽衫、淺色寬牛仔褲、黑色高筒帆布鞋", "灰色針織背心、白襯衫、卡其長褲、棕色短靴"];
 type Bg = "check" | "light" | "dark";
+type WalletEntry = { seq: number; at: string; kind: string; label: string; amount: number; counterparty: string; memo: string; ref: string };
+type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
+const TOKEN_KEY = "emcEditorToken";
+const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
+/** 圖片要帶登入 token 才拿得到（<img> 不能帶標頭），所以用 fetch 取回再顯示。 */
+function AuthImage({ url, token, alt }: { url: string; token: string; alt: string }) {
+  const [src, setSrc] = useState("");
+  useEffect(() => {
+    let revoked = "";
+    let cancelled = false;
+    fetch(url, { headers: token ? { "x-emc-editor-token": token } : {} }).then((response) => response.ok ? response.blob() : Promise.reject(new Error("img"))).then((blob) => { if (!cancelled) { revoked = URL.createObjectURL(blob); setSrc(revoked); } }).catch(() => undefined);
+    return () => { cancelled = true; if (revoked) URL.revokeObjectURL(revoked); };
+  }, [url, token]);
+  return src ? <img src={src} alt={alt} loading="lazy" /> : null;
+}
 // 規格化輸出：每個角度放進 400×392 的格子，身體高 336（參考圖 168 的兩倍），腳底落在格子下緣上方 28 px
 const CELL = { w: 400, h: 392, body: 336, baseline: 364 };
 
@@ -75,6 +90,12 @@ export default function OutfitPage() {
   const [items, setItems] = useState<Generated[]>([]);
   const [activeId, setActiveId] = useState("");
   const [bg, setBg] = useState<Bg>("check");
+  const [token, setToken] = useState("");
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [walletError, setWalletError] = useState("");
+  const [transfer, setTransfer] = useState({ to: "", amount: "", memo: "" });
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferMessage, setTransferMessage] = useState("");
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [totals, setTotals] = useState({ runs: 0, ok: 0, tokens: 0, costUsd: 0 });
   const [historyError, setHistoryError] = useState("");
@@ -83,30 +104,69 @@ export default function OutfitPage() {
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
 
+  // 登入：設計需求系統把 token 放在網址的 #t=…（# 後面的內容不會送到伺服器），這裡收下來存在這個分頁、立刻從網址拿掉。
+  useEffect(() => {
+    let value = "";
+    try {
+      const match = location.hash.match(/[#&]t=([^&]+)/);
+      if (match) { value = decodeURIComponent(match[1]); sessionStorage.setItem(TOKEN_KEY, value); history.replaceState(null, "", location.pathname + location.search); }
+      else value = sessionStorage.getItem(TOKEN_KEY) || "";
+    } catch { /* 瀏覽器不讓用 sessionStorage 就當作沒登入 */ }
+    setToken(value);
+  }, []);
+  const authHeaders = (): Record<string, string> => token ? { "x-emc-editor-token": token } : {};
+  async function loadWallet() {
+    if (!token) { setWallet(null); return; }
+    try {
+      const response = await fetch("/api/outfit/wallet", { headers: authHeaders() });
+      const payload = await response.json() as Wallet & { error?: string };
+      if (!response.ok) throw new Error(payload.error || "讀取平台幣失敗");
+      setWallet(payload); setWalletError("");
+    } catch (cause) { setWallet(null); setWalletError(cause instanceof Error ? cause.message : "讀取平台幣失敗"); }
+  }
+  useEffect(() => { void loadWallet(); void loadHistory(); }, [token]);
+  async function submitTransfer() {
+    if (transferBusy) return;
+    setTransferBusy(true); setTransferMessage("");
+    try {
+      const response = await fetch("/api/outfit/wallet/transfer", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify(transfer) });
+      const payload = await response.json() as { error?: string; amount?: number; to?: string; balance?: number };
+      if (!response.ok) throw new Error(payload.error || "轉讓失敗");
+      setTransferMessage(`已轉給 ${payload.to}：${fmtCoin(payload.amount || 0)} 點，目前餘額 ${fmtCoin(payload.balance || 0)} 點`);
+      setTransfer({ to: transfer.to, amount: "", memo: "" });
+      void loadWallet();
+    } catch (cause) { setTransferMessage(cause instanceof Error ? cause.message : "轉讓失敗"); }
+    finally { setTransferBusy(false); }
+  }
+
   async function loadHistory() {
     try {
-      const response = await fetch("/api/outfit/history");
+      const response = await fetch("/api/outfit/history", { headers: authHeaders() });
       const payload = await response.json() as { items?: HistoryRecord[]; totals?: typeof totals; error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取紀錄失敗");
       setRecords(payload.items || []); setTotals(payload.totals || { runs: 0, ok: 0, tokens: 0, costUsd: 0 }); setHistoryError("");
     } catch (cause) { setHistoryError(cause instanceof Error ? cause.message : "讀取紀錄失敗"); }
   }
-  useEffect(() => { void loadHistory(); }, []);
   function openRecord(record: HistoryRecord) {
     if (!record.imageUrl) return;
-    const item: Generated = { id: record.id, image: record.imageUrl, model: record.model, quality: record.quality as Quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
+    void (async () => {
+    const blobUrl = await fetch(record.imageUrl, { headers: authHeaders() }).then((response) => response.blob()).then((blob) => URL.createObjectURL(blob)).catch(() => "");
+    if (!blobUrl) { setError("讀取這張圖片失敗"); return; }
+    const item: Generated = { id: record.id, image: blobUrl, model: record.model, quality: record.quality as Quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
     setItems((current) => [item, ...current.filter((existing) => existing.id !== record.id)].slice(0, 8)); setActiveId(record.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
+    })();
   }
 
   // 這把金鑰能用的圖片模型（預設用後端指定的模型 gpt-image-2.5-sunburst）
   useEffect(() => {
-    fetch("/api/outfit").then((response) => response.json() as Promise<{ models?: string[]; current?: string }>).then((payload) => {
+    if (!token) return;
+    fetch("/api/outfit", { headers: authHeaders() }).then((response) => response.json() as Promise<{ models?: string[]; current?: string }>).then((payload) => {
       const list = payload.models || [];
       setModels(list);
       setModel(payload.current && list.includes(payload.current) ? payload.current : (list.includes("gpt-image-2.5-sunburst") ? "gpt-image-2.5-sunburst" : list[list.length - 1] || ""));
     }).catch(() => undefined);
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     if (!loading) return;
@@ -143,9 +203,9 @@ export default function OutfitPage() {
       if (refit && active) {
         // 把目前這張當成「衣服」，要求重新套到標準身體上
         form.set("mode", "refit");
-        form.append("images", await (await fetch(active.image)).blob(), "draft.png");
+        form.append("images", await (await fetch(active.image, { headers: active.image.startsWith("/api/") ? authHeaders() : {} })).blob(), "draft.png");
       } else files.forEach((file) => form.append("images", file));
-      const response = await fetch("/api/outfit", { method: "POST", body: form });
+      const response = await fetch("/api/outfit", { method: "POST", headers: authHeaders(), body: form });
       const raw = (await response.text()).trim();
       let payload: { error?: string; image?: string; described?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
       try { payload = JSON.parse(raw); }
@@ -154,11 +214,13 @@ export default function OutfitPage() {
       const image = payload.transparent === false ? removeWhiteBackground(await loadImage(payload.image)) : payload.image;
       const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成", described: payload.described || "" };
       setItems((current) => [item, ...current].slice(0, 8)); setActiveId(item.id);
-      void loadHistory();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); void loadHistory(); }
+      void loadHistory(); void loadWallet();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); void loadHistory(); void loadWallet(); }
     finally { setLoading(false); }
   }
 
+  const needsCoins = Boolean(wallet?.designer);
+  const canGenerate = Boolean(token && wallet && (!needsCoins || wallet.balance >= wallet.spendPerGeneration) && (needsCoins || wallet.admin));
   async function saveSheet(kind: "original" | "normalized") {
     if (!active) return;
     if (kind === "original") { download(active.image, `outfit-${active.label || "sheet"}.png`); return; }
@@ -179,6 +241,20 @@ export default function OutfitPage() {
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
+          <div className="wallet">
+            {!token ? <div className="wallet-locked"><b>需要從設計需求系統進入</b><span>請先登入設計需求系統，再點左側選單的「服裝」，才會帶入你的帳號與平台幣。</span></div>
+              : walletError ? <div className="wallet-locked"><b>讀不到平台幣</b><span>{walletError}</span></div>
+              : !wallet ? <div className="wallet-locked"><span>讀取平台幣中…</span></div>
+              : !wallet.designer ? <div className="wallet-locked"><b>{wallet.admin ? "管理員" : "沒有設計師身分"}</b><span>{wallet.admin ? "你沒有設計師平台幣，生成不扣點，所有紀錄仍會留存。" : "只有設計師帳號有平台幣，才能使用服裝生成器。"}</span></div>
+              : <>
+                <div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">每次生成 {fmtCoin(wallet.spendPerGeneration)} 點<br />完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div>
+                {wallet.balance < wallet.spendPerGeneration && <p className="wallet-warn">餘額不足 {fmtCoin(wallet.spendPerGeneration)} 點，還不能生成；完成案件累積，或請同事轉讓。</p>}
+                <details className="wallet-transfer"><summary>轉讓點數給同事</summary>
+                  <div className="transfer-form"><select value={transfer.to} onChange={(e) => setTransfer({ ...transfer, to: e.target.value })}><option value="">選擇設計師</option>{wallet.directory.map((name) => <option key={name} value={name}>{name}</option>)}</select><input type="number" min="0.1" step="0.1" placeholder="點數" value={transfer.amount} onChange={(e) => setTransfer({ ...transfer, amount: e.target.value })} /><input type="text" maxLength={60} placeholder="備註（選填）" value={transfer.memo} onChange={(e) => setTransfer({ ...transfer, memo: e.target.value })} /><button disabled={transferBusy || !transfer.to || !transfer.amount} onClick={() => void submitTransfer()}>{transferBusy ? "轉讓中…" : "確認轉讓"}</button></div>
+                  <p className="transfer-note">轉讓會立即入帳，無法自行取消；雙方的紀錄都會留在帳本，如果轉錯請聯絡管理員處理。</p>
+                  {transferMessage && <p className="transfer-msg">{transferMessage}</p>}
+                </details></>}
+          </div>
           <div className="field-label">服裝參考圖片 <span>選填 · 最多 2 張</span></div>
           <button className="drop" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={onDrop} disabled={loading}><span className="upload-icon"><Upload size={22} /></span><strong>拖曳圖片到這裡</strong><span>或點擊上傳服裝參考</span><small>PNG / JPG / WebP · 每張 10 MB 以內</small></button>
           <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
@@ -191,7 +267,7 @@ export default function OutfitPage() {
           <div className="quality-row" role="radiogroup" aria-label="品質" id="outfit-quality">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} disabled={loading} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
           {models.length > 1 && <label className="model-row">圖片模型<select value={model} disabled={loading} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
           <div className="rules" style={{ marginTop: 18 }}><Check size={15} /><span>已套用固定規範：無頭身體、朝右側面、透明背景</span></div>
-          <button className="generate" onClick={() => void generate()} disabled={loading || (!description.trim() && !files.length)}>{loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}<span>{loading ? `正在生成 · ${elapsed} 秒` : "生成服裝三視圖"}</span>{!loading && <ArrowUpRight size={20} />}</button>
+          <button className="generate" onClick={() => void generate()} disabled={loading || !canGenerate || (!description.trim() && !files.length)}>{loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}<span>{loading ? `正在生成 · ${elapsed} 秒` : "生成服裝三視圖"}</span>{!loading && <ArrowUpRight size={20} />}</button>
           <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在下方。</small>
           {error && <div className="error" role="alert">{error}</div>}
         </section>
@@ -221,7 +297,7 @@ export default function OutfitPage() {
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
         {historyError && <div className="error">{historyError}</div>}
         {!records.length && !historyError ? <p className="empty-note">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="records">{records.map((record) => <article key={record.id} className="record">
-          {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><img src={record.imageUrl} alt={record.description || "生成結果"} loading="lazy" /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
+          {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><AuthImage url={record.imageUrl} token={token} alt={record.description || "生成結果"} /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
           <div className="record-main"><div className="record-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · {QUALITIES.find((q) => q.id === record.quality)?.label || record.quality}</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
             <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
@@ -229,6 +305,11 @@ export default function OutfitPage() {
           {record.imageUrl && <button className="open-btn" onClick={() => openRecord(record)}>重新打開</button>}
         </article>)}</div>}
       </section>
+      {wallet?.designer && <section className="history">
+        <div className="section-head"><div className="preview-title"><span className="step">04</span><h2>平台幣明細</h2></div><button className="refresh" onClick={() => void loadWallet()}>重新整理</button></div>
+        <p className="history-total">你的最近 {wallet.recent.length} 筆紀錄（完整帳本由管理員保存，每筆都有簽章，無法事後修改）</p>
+        {!wallet.recent.length ? <p className="empty-note">還沒有紀錄。完成案件後，積分會自動記入。</p> : <div className="records">{wallet.recent.map((entry) => <article key={entry.seq} className="coin-entry"><time>{formatTime(entry.at)}</time><strong>{entry.label}{entry.counterparty ? `（${entry.kind === "transfer_in" ? "來自" : "給"} ${entry.counterparty}）` : ""}</strong><span className="coin-memo">{entry.memo}</span><b className={entry.amount >= 0 ? "plus" : "minus"}>{entry.amount >= 0 ? "+" : ""}{fmtCoin(entry.amount)}</b></article>)}</div>}
+      </section>}
       <footer><span>PIXEL OFFICE / CREATIVE TOOLS</span><span>每一套，都有你的風格。</span></footer>
     </main>
   </div>;
