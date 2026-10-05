@@ -25,6 +25,35 @@ function friendlyError(status: number, message: string) {
   return message || `OpenAI 回應異常（${status}）`;
 }
 
+const DESCRIBE_MODEL = "gpt-5-mini";
+const DESCRIBE_INSTRUCTIONS = `You look at photos of a person wearing an outfit and write a compact description of ONLY the clothing, for a game-art illustrator who will redraw the outfit as a flat cartoon.
+Rules: list every garment from top to bottom (outer layer, inner top, bottoms, shoes) and every accessory (bags, belts, jewelry, pins, trims). For each give the garment type, the main colors (plain color words), the pattern or material in one or two simple words (for example "pink tweed with pearl trim", "navy wide-leg trousers", "leopard print"), and notable details (buttons, pockets, collar, zipper, chain strap). Describe the loose, boxy, oversized cartoon version of each garment, not a tailored real-life fit.
+Do NOT describe the person, face, hair, body shape, pose, background, lighting or the photo itself. Maximum 90 words, one line, English, comma-separated.`;
+
+type DescribePayload = { output_text?: string; output?: Array<{ content?: Array<{ type?: string; text?: string }> }>; error?: { message?: string } };
+
+/** 先請視覺模型把照片裡的「衣服」用文字描述出來，之後生成只用文字，不再把照片本身丟給圖片模型——
+ *  照片會把真人的身形、水彩般的布料質感一起帶進來（2026-10-05 實測：比例跑掉、畫面像水彩）。 */
+async function describeOutfit(apiKey: string, photos: File[]): Promise<string> {
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: "Describe the outfit." }];
+  for (const photo of photos) {
+    const bytes = new Uint8Array(await photo.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    content.push({ type: "input_image", image_url: `data:${photo.type};base64,${btoa(binary)}` });
+  }
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: DESCRIBE_MODEL, instructions: DESCRIBE_INSTRUCTIONS, reasoning: { effort: "low" }, input: [{ role: "user", content }] }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const payload = await response.json().catch(() => ({})) as DescribePayload;
+  if (!response.ok) throw new Error(`讀取照片裡的衣服失敗：${payload.error?.message || response.status}`);
+  const text = (payload.output_text || (payload.output || []).flatMap((item) => item.content || []).map((part) => part.text || "").join(" ")).replace(/\s+/g, " ").trim();
+  if (!text) throw new Error("沒有從照片讀到衣服，請換一張更清楚的照片，或直接輸入文字描述。");
+  return text.slice(0, 700);
+}
+
 type ImageUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number; input_tokens_details?: { text_tokens?: number; image_tokens?: number } };
 
 function estimateCostUsd(usage: ImageUsage | undefined) {
@@ -67,10 +96,11 @@ export async function POST(request: Request) {
 
   const requested = String(form.get("model") || "");
   const model = /^[a-z0-9][a-z0-9.\-]{2,60}$/.test(requested) && /image/i.test(requested) ? requested : (process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT);
+  let promptDescription = description, editPhotos = photos;
   const buildBody = (transparent: boolean) => {
   const body = new FormData();
   body.set("model", model);
-  body.set("prompt", refit ? buildRefitPrompt(description) : buildOutfitPrompt(description, photos.length > 0, base));
+  body.set("prompt", refit ? buildRefitPrompt(promptDescription) : buildOutfitPrompt(promptDescription, editPhotos.length > 0, base));
   body.set("size", size);
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
@@ -78,7 +108,7 @@ export async function POST(request: Request) {
   body.set("n", "1");
   if (base === "sheet") body.append("image[]", base64ToBlob(OUTFIT_REFERENCE_B64, "image/webp"), "outfit-reference.webp");
   else body.append("image[]", base64ToBlob(OUTFIT_TEMPLATE_B64, "image/png"), "outfit-template.png");
-  photos.forEach((photo, index) => body.append("image[]", photo, photo.name || `photo-${index + 1}`));
+  editPhotos.forEach((photo, index) => body.append("image[]", photo, photo.name || `photo-${index + 1}`));
   return body;
   };
 
@@ -89,6 +119,12 @@ export async function POST(request: Request) {
       const heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, HEARTBEAT_MS);
       const send = (payload: unknown) => controller.enqueue(encoder.encode(JSON.stringify(payload)));
       try {
+        let described = "";
+        if (!refit && photos.length) {
+          described = await describeOutfit(apiKey, photos);
+          promptDescription = [described, description].filter(Boolean).join(" Additional notes: ");
+          editPhotos = [];
+        }
         const call = (transparent: boolean) => fetch("https://api.openai.com/v1/images/edits", {
           method: "POST",
           headers: { Authorization: `Bearer ${apiKey}` },
@@ -110,7 +146,7 @@ export async function POST(request: Request) {
         if (!b64) { send({ error: "OpenAI 沒有回傳圖片，請再試一次。" }); return; }
         send({
           image: `data:image/png;base64,${b64}`,
-          model, quality, transparent,
+          model, quality, transparent, described,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,
           usage: { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: payload.usage?.total_tokens ?? 0, costUsd: estimateCostUsd(payload.usage) },
         });

@@ -18,9 +18,11 @@ HEADLESS - THIS IS THE MOST IMPORTANT RULE: the figures have NO head, NO face, N
 
 Change ONLY the clothing: the top, the bottom, the shoes and the graphics on them. If the new garments are shorter, longer or wider than the template's, reshape the garments (for example shorts show more leg, a long coat covers more), but never change the body, the neck or the hands.`;
 
+const VIEW_RULES = `VIEW RULES: the FRONT view is a perfectly frontal, symmetrical view facing the viewer (both shoulders level and equally visible, buttons/zipper/collar centered on the body, both arms and both legs equally visible) - NOT turned, NOT three-quarter. The SIDE view is an exact profile facing RIGHT. The BACK view is exactly from behind. The three figures stand in the same neutral standing pose.`;
+
 const BODY_LOCK = `BODY SHAPE LOCK: every figure keeps the template's body, never the body of any person in a photo. The template body is WIDE and CHUNKY, not slim: the front and back views are almost as wide as they are tall (arms held clearly away from the torso, width about 90-104% of the height), the side view is about 54-66% of the height wide; the legs are thick and the trousers loose and wide; the shoes are big and chunky; the upper body (neck to crotch) is only about 45% of the height. Do NOT make the figure taller, slimmer or more realistic than the template, and do not copy the slim fit of garments from photos: re-fit every garment onto the template body so it looks loose and boxy.`;
 
-const CRISP_STYLE = `RENDERING QUALITY: crisp, clean, high-resolution cel-shaded game-art illustration. Bold smooth dark outlines of even thickness, flat clean color fills with one soft shading tone and a few sharp highlights. NO painterly brush strokes, NO watercolor or oil texture, NO noise, grain or speckle, NO rough, broken or blurry edges, NO realistic fabric texture. Patterns (tweed, plaid, leopard, florals, knit) are drawn as simple clean repeating shapes with clear edges. Zoomed in, every line must look sharp and deliberate.`;
+const CRISP_STYLE = `RENDERING QUALITY: crisp, clean, high-resolution cel-shaded game-art illustration. Bold smooth dark outlines of even thickness, flat clean color fills with one soft shading tone and a few sharp highlights. NO painterly brush strokes, NO watercolor, oil, pencil or hatching texture, NO hand-painted or photorealistic look - it must look like a clean flat vector-style sticker / mobile-game asset like the reference sheet, NO noise, grain or speckle, NO rough, broken or blurry edges, NO realistic fabric texture. Patterns (tweed, plaid, leopard, florals, knit) are drawn as simple clean repeating shapes with clear edges. Zoomed in, every line must look sharp and deliberate.`;
 
 const SHEET_RULES = `The FIRST attached image is a STYLE AND PROPORTION REFERENCE: a sheet of six existing outfits, each shown as three views (front, side facing right, back) on a HEADLESS clothing mannequin body. Draw ONE NEW outfit in exactly the same art style, with exactly the same body construction and proportions, as those six.
 
@@ -37,13 +39,13 @@ export function buildOutfitPrompt(description: string, hasPhoto: boolean, mode: 
   const source = hasPhoto
     ? `NEW OUTFIT: the clothing shown in the additional attached image(s) after the first image. Reproduce that clothing (colors, garment types, graphics) on the template figures. Extra notes from the user: ${outfit}`
     : `NEW OUTFIT: ${outfit}`;
-  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
+  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, VIEW_RULES, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
 }
 
 /** 比例不對時：把上一張結果當成「衣服」，重新套到標準身體上。 */
 export function buildRefitPrompt(note: string) {
   const extra = note.trim() ? ` Extra notes from the user: ${note.trim()}` : "";
-  return [TEMPLATE_RULES, `NEW OUTFIT: the additional attached image is a DRAFT of this outfit whose body proportions are WRONG (too slim, too tall or too narrow). Keep the garments of the draft exactly (colors, patterns, accessories, shoes) but redraw them on the template's body with the correct proportions.${extra}`, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
+  return [TEMPLATE_RULES, `NEW OUTFIT: the additional attached image is a DRAFT of this outfit whose body proportions are WRONG (too slim, too tall or too narrow). Keep the garments of the draft exactly (colors, patterns, accessories, shoes) but redraw them on the template's body with the correct proportions.${extra}`, VIEW_RULES, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
 }
 
 // 圖片模型單價（美元／每 100 萬 tokens，以 gpt-image-1 的官方定價估算，只用來顯示「約」多少錢；實測 chatgpt-image-latest 標準品質一張約 US$0.10）

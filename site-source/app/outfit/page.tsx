@@ -6,7 +6,7 @@ import { analyzeOutfit, type Check as QaCheck, type ViewBox } from "@/lib/outfit
 import { formatTwd, formatUsd } from "@/lib/pricing";
 
 type Quality = "low" | "medium" | "high";
-type Generated = { id: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
+type Generated = { id: string; described?: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
 
 const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
   { id: "low", label: "快速", hint: "約 20–40 秒，適合先看大概" },
@@ -121,12 +121,12 @@ export default function OutfitPage() {
       } else files.forEach((file) => form.append("images", file));
       const response = await fetch("/api/outfit", { method: "POST", body: form });
       const raw = (await response.text()).trim();
-      let payload: { error?: string; image?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
+      let payload: { error?: string; image?: string; described?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
       try { payload = JSON.parse(raw); }
       catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）：${raw.slice(0, 80)}`); }
       if (!response.ok || payload.error || !payload.image) throw new Error(payload.error || "生成失敗，請稍後再試。");
       const image = payload.transparent === false ? removeWhiteBackground(await loadImage(payload.image)) : payload.image;
-      const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成" };
+      const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成", described: payload.described || "" };
       setItems((current) => [item, ...current].slice(0, 8)); setActiveId(item.id);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); }
     finally { setLoading(false); }
@@ -173,6 +173,7 @@ export default function OutfitPage() {
             {qa && <div className="detail"><h3>規格檢查 <b className={qa.ok ? "qa-ok" : "qa-warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
               <ul className="qa-list">{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={15} /> : <TriangleAlert size={15} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>
               <p className="qa-note">這是依規格自動量的參考，最後仍請用眼睛看：頭、帽子、眼鏡不能出現；脖子要平切；三個角度的衣服要是同一套。</p></div>}
+            {active.described && <div className="detail"><h3>AI 從照片讀到的衣服</h3><p>{active.described}</p><button className="text-link" onClick={() => { setDescription(active.described || ""); setFiles([]); }}>用這段文字當描述（不再附照片）</button></div>}
             <div className="detail usage-detail"><h3>這次的用量</h3><p>{active.model} · {QUALITIES.find((q) => q.id === active.quality)?.label} · {active.seconds} 秒 · {active.usage.total.toLocaleString()} tokens · <b>約 {formatUsd(active.usage.costUsd)}</b>（{formatTwd(active.usage.costUsd)}）</p></div>
           </div>}
         </aside>
