@@ -73,12 +73,12 @@ export default function OutfitPage() {
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
 
-  // 這把金鑰能用的圖片模型（預設用 chatgpt-image-latest：跟 ChatGPT 網頁版同一條線；沒有就用清單最後一個）
+  // 這把金鑰能用的圖片模型（預設用後端指定的模型 gpt-image-2.5-sunburst）
   useEffect(() => {
     fetch("/api/outfit").then((response) => response.json() as Promise<{ models?: string[]; current?: string }>).then((payload) => {
       const list = payload.models || [];
       setModels(list);
-      setModel(list.includes("chatgpt-image-latest") ? "chatgpt-image-latest" : (payload.current && list.includes(payload.current) ? payload.current : list[list.length - 1] || ""));
+      setModel(payload.current && list.includes(payload.current) ? payload.current : (list.includes("gpt-image-2.5-sunburst") ? "gpt-image-2.5-sunburst" : list[list.length - 1] || ""));
     }).catch(() => undefined);
   }, []);
 

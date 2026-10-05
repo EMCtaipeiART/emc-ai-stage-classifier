@@ -1,4 +1,4 @@
-import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, IMAGE_SIZE } from "@/lib/outfit-spec";
+import { buildOutfitPrompt, buildRefitPrompt, IMAGE_MODEL_DEFAULT, IMAGE_PRICE_PER_MILLION, imageSizeFor } from "@/lib/outfit-spec";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 
@@ -85,8 +85,6 @@ export async function POST(request: Request) {
   const refit = String(form.get("mode")) === "refit";
   // 預設用「六套現有服裝的參考圖」當風格與比例參考（細節與線條最精緻、人物最大）；只有修正比例時才用無頭身體底圖。
   const base: "template" | "sheet" = refit || String(form.get("base")) === "template" ? "template" : "sheet";
-  const sizeParam = String(form.get("size") || "");
-  const size = /^(auto|\d{3,4}x\d{3,4})$/.test(sizeParam) ? sizeParam : IMAGE_SIZE;
   const photos = form.getAll("images").filter((value): value is File => typeof value !== "string").slice(0, 2);
   for (const photo of photos) {
     if (!/^image\/(png|jpeg|webp)$/.test(photo.type) || photo.size > 10 * 1024 * 1024) return Response.json({ error: "參考圖只接受 10MB 內的 PNG、JPG、WebP。" }, { status: 400 });
@@ -101,7 +99,7 @@ export async function POST(request: Request) {
   const body = new FormData();
   body.set("model", model);
   body.set("prompt", refit ? buildRefitPrompt(promptDescription) : buildOutfitPrompt(promptDescription, editPhotos.length > 0, base));
-  body.set("size", size);
+  body.set("size", imageSizeFor(model));
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
   body.set("output_format", "png");

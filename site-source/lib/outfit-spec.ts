@@ -30,6 +30,8 @@ Layout: ONE ROW with THREE views side by side in this order: FRONT, SIDE facing 
 
 HEADLESS - THIS IS THE MOST IMPORTANT RULE: draw NO head, NO face, NO hair, NO ears, exactly like the reference sheet. Each figure is cut off at the neck: the top of every view is the short skin-colored neck stump (#F8B888) with a FLAT, HORIZONTAL cut across its top. Never add a head, hat, glasses or headphones. Nothing may extend above the neck stump.`;
 
+const MARGIN_RULE = `FRAMING: leave at least 8% of the canvas height as empty margin above the flat neck tops and below the shoe soles, and at least 4% of the width at the left and right edges. Every figure must be shown COMPLETE with nothing touching or cropped by the canvas edge, so make the figures a little smaller than the canvas height if needed.`;
+
 const CONSISTENCY = `All three views must show the SAME outfit consistently (same colors, graphics, lengths, pocket positions). The back view must show a plausible back of the garment (the back of the neck is skin colored; do not draw the front neckline on the back). Keep clothing graphics simple and bold, never tiny details. The three views stay the same height with the soles of the shoes on the same baseline. Fully transparent background (if transparency is impossible, use a flat pure white background and never use pure white inside the clothes or shoes). No text, watermark, grid lines, labels or color swatches.`;
 
 /** 組出送給 OpenAI 的提示詞。hasPhoto：使用者另外附了服裝參考圖（第二張起）。 */
@@ -39,17 +41,19 @@ export function buildOutfitPrompt(description: string, hasPhoto: boolean, mode: 
   const source = hasPhoto
     ? `NEW OUTFIT: the clothing shown in the additional attached image(s) after the first image. Reproduce that clothing (colors, garment types, graphics) on the template figures. Extra notes from the user: ${outfit}`
     : `NEW OUTFIT: ${outfit}`;
-  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, VIEW_RULES, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
+  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, VIEW_RULES, BODY_LOCK, MARGIN_RULE, CRISP_STYLE, CONSISTENCY].join("\n\n");
 }
 
 /** 比例不對時：把上一張結果當成「衣服」，重新套到標準身體上。 */
 export function buildRefitPrompt(note: string) {
   const extra = note.trim() ? ` Extra notes from the user: ${note.trim()}` : "";
-  return [TEMPLATE_RULES, `NEW OUTFIT: the additional attached image is a DRAFT of this outfit whose body proportions are WRONG (too slim, too tall or too narrow). Keep the garments of the draft exactly (colors, patterns, accessories, shoes) but redraw them on the template's body with the correct proportions.${extra}`, VIEW_RULES, BODY_LOCK, CRISP_STYLE, CONSISTENCY].join("\n\n");
+  return [TEMPLATE_RULES, `NEW OUTFIT: the additional attached image is a DRAFT of this outfit whose body proportions are WRONG (too slim, too tall or too narrow). Keep the garments of the draft exactly (colors, patterns, accessories, shoes) but redraw them on the template's body with the correct proportions.${extra}`, VIEW_RULES, BODY_LOCK, MARGIN_RULE, CRISP_STYLE, CONSISTENCY].join("\n\n");
 }
 
 // 圖片模型單價（美元／每 100 萬 tokens，以 gpt-image-1 的官方定價估算，只用來顯示「約」多少錢；實測 chatgpt-image-latest 標準品質一張約 US$0.10）
 export const IMAGE_PRICE_PER_MILLION = { textInput: 5, imageInput: 10, output: 40 };
-// 預設用 chatgpt-image-latest（跟 ChatGPT 網頁版同一條線，細節明顯比 gpt-image-1 精緻）；頁面會列出這把金鑰能用的所有圖片模型可以改選。
-export const IMAGE_MODEL_DEFAULT = "chatgpt-image-latest";
+// 預設用 gpt-image-2.5-sunburst（使用者 2026-10-05 指定試用；支援 1920×640 寬畫布與透明背景）。chatgpt-image-latest 也實測過，細節同樣明顯比 gpt-image-1 精緻；頁面會列出這把金鑰能用的所有圖片模型可以改選。
+export const IMAGE_MODEL_DEFAULT = "gpt-image-2.5-sunburst";
 export const IMAGE_SIZE = "1536x1024";
+/** 各模型支援的尺寸不同：2.5-sunburst 可以用三視圖專用的寬畫布，其餘只有 1024×1024／1024×1536／1536×1024／auto。 */
+export const imageSizeFor = (model: string) => /sunburst/i.test(model) ? "1920x640" : IMAGE_SIZE;
