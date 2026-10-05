@@ -1,7 +1,8 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Download, LoaderCircle, Shirt, Sparkles, Upload, X, TriangleAlert } from "lucide-react";
+import "./studio.css";
+import { ArrowUpRight, Check, Download, LoaderCircle, LogOut, Shirt, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from "lucide-react";
 import { analyzeOutfit, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { formatTwd, formatUsd } from "@/lib/pricing";
 
@@ -18,6 +19,7 @@ const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
   { id: "high", label: "高品質", hint: "約 1.5–3 分鐘，費用最高" },
 ];
 const EXAMPLES = ["紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋", "橘色連帽衫、淺色寬牛仔褲、黑色高筒帆布鞋", "灰色針織背心、白襯衫、卡其長褲、棕色短靴"];
+type Bg = "check" | "light" | "dark";
 // 規格化輸出：每個角度放進 400×392 的格子，身體高 336（參考圖 168 的兩倍），腳底落在格子下緣上方 28 px
 const CELL = { w: 400, h: 392, body: 336, baseline: 364 };
 
@@ -72,6 +74,7 @@ export default function OutfitPage() {
   const [error, setError] = useState("");
   const [items, setItems] = useState<Generated[]>([]);
   const [activeId, setActiveId] = useState("");
+  const [bg, setBg] = useState<Bg>("check");
   const [records, setRecords] = useState<HistoryRecord[]>([]);
   const [totals, setTotals] = useState({ runs: 0, ok: 0, tokens: 0, costUsd: 0 });
   const [historyError, setHistoryError] = useState("");
@@ -129,7 +132,7 @@ export default function OutfitPage() {
     const incoming = Array.from(list).filter((file) => /^image\/(png|jpeg|webp)$/.test(file.type) && file.size <= 10 * 1024 * 1024);
     setFiles((current) => [...current, ...incoming].slice(0, 2));
   }
-  function onDrop(event: DragEvent<HTMLDivElement>) { event.preventDefault(); addFiles(event.dataTransfer.files); }
+  function onDrop(event: DragEvent<HTMLElement>) { event.preventDefault(); addFiles(event.dataTransfer.files); }
 
   async function generate(refit = false) {
     if (!refit && !description.trim() && !files.length) { setError("請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。"); return; }
@@ -169,53 +172,64 @@ export default function OutfitPage() {
     download(cropCanvas(image, qa.views[index]).toDataURL("image/png"), `outfit-${active.label || "sheet"}-${["front", "side", "back"][index]}.png`);
   }
 
-  return <main className="app-shell">
-    <header className="topbar"><div className="brand"><span className="brand-mark">E</span><span>EMC AI 服裝生成器<small>PIXEL OFFICE OUTFIT SHEET</small></span></div><span className="service"><a className="logout" href="/">← 階段判定器</a><a className="logout" href="/api/logout">登出</a></span></header>
-    <section className="page">
-      <div className="intro"><div><h1>一次生成一套服裝的三個角度</h1><p>輸入關鍵字，或上傳服裝參考圖，AI 會照 Pixel Office 的人物比例，畫出正面、側面、背面。</p></div></div>
+  return <div className="studio">
+    <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
+    <main>
+      <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
       <div className="workspace">
-        <section className="panel input-panel">
-          <div className="panel-title"><h2>描述這套服裝</h2><span>01／輸入</span></div>
-          <label htmlFor="outfit-description">服裝關鍵字 <em>（英文或中文都可以）</em></label>
-          <textarea id="outfit-description" value={description} maxLength={600} placeholder="例如：紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋" onChange={(e) => setDescription(e.target.value)} />
-          <div className="under-field"><div className="chips">{EXAMPLES.map((example) => <button key={example} type="button" onClick={() => setDescription(example)}>{example.split("、")[0]}…</button>)}</div><span>{description.length} / 600</span></div>
-          <div className="source-box dropzone primary-source" onDragOver={(e) => e.preventDefault()} onDrop={onDrop} onClick={() => fileInput.current?.click()}><input ref={fileInput} hidden multiple type="file" accept="image/png,image/jpeg,image/webp" onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} /><Upload size={24} /><div><strong>上傳服裝參考圖 <em>選填</em></strong><small>最多 2 張、每張 10MB 內；可以是衣服照片或設計稿。有上傳時，上面的文字會當成補充說明</small></div></div>
-          {previews.length > 0 && <div className="previews">{previews.map(({ file, url }, index) => <div key={file.name + index}><img src={url} alt={file.name} /><button aria-label={`移除 ${file.name}`} onClick={(e) => { e.stopPropagation(); setFiles(files.filter((_, i) => i !== index)); }}><X size={14} /></button></div>)}</div>}
-          {models.length > 1 && <label className="model-row">圖片模型<select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
-          <div className="quality-row" role="radiogroup" aria-label="品質">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
-          {error && <p className="error" role="alert">{error}</p>}
-          <button className="analyze" disabled={loading} onClick={() => void generate()}>{loading ? <><LoaderCircle className="spin" size={19} />生成中… 已 {elapsed} 秒</> : <><Sparkles size={19} />開始生成</>}</button>
-          <p className="privacy">使用 OpenAI 圖片模型生成，需要付費；金鑰只保留在伺服器端。每次生成都以現有人物的無頭身體當底圖、只換衣服，所以比例會跟遊戲裡一致。</p>
+        <section className="control">
+          <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
+          <div className="field-label">服裝參考圖片 <span>選填 · 最多 2 張</span></div>
+          <button className="drop" onClick={() => fileInput.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={onDrop} disabled={loading}><span className="upload-icon"><Upload size={22} /></span><strong>拖曳圖片到這裡</strong><span>或點擊上傳服裝參考</span><small>PNG / JPG / WebP · 每張 10 MB 以內</small></button>
+          <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onChange={(e: ChangeEvent<HTMLInputElement>) => { if (e.target.files) addFiles(e.target.files); e.target.value = ""; }} />
+          {previews.length > 0 && <div className="thumbs">{previews.map(({ file, url }, index) => <div key={file.name + index}><img src={url} alt={`服裝參考 ${index + 1}`} /><button onClick={() => setFiles(files.filter((_, i) => i !== index))} aria-label={`移除圖片 ${index + 1}`} disabled={loading}><X size={13} /></button></div>)}</div>}
+          <label className="field-label" htmlFor="outfit-description">服裝描述 <span>沒有圖片也可以直接描述</span></label>
+          <textarea id="outfit-description" value={description} maxLength={600} disabled={loading} placeholder="例如：短版粉色外套、黑色寬褲、厚底鞋。保留珍珠滾邊，移除包包。" onChange={(e) => setDescription(e.target.value)} />
+          <div className="prompt-foot"><span>只上傳圖片時，會先讀出圖中的衣服再生成。</span><span>{description.length}/600</span></div>
+          <div className="presets">{EXAMPLES.map((example) => <button key={example} onClick={() => setDescription(example)} disabled={loading}>{example.split("、").slice(0, 2).join("＋")}</button>)}</div>
+          <div className="settings"><SlidersHorizontal size={16} /><label htmlFor="outfit-quality">生成品質</label></div>
+          <div className="quality-row" role="radiogroup" aria-label="品質" id="outfit-quality">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} disabled={loading} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
+          {models.length > 1 && <label className="model-row">圖片模型<select value={model} disabled={loading} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
+          <div className="rules" style={{ marginTop: 18 }}><Check size={15} /><span>已套用固定規範：無頭身體、朝右側面、透明背景</span></div>
+          <button className="generate" onClick={() => void generate()} disabled={loading || (!description.trim() && !files.length)}>{loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}<span>{loading ? `正在生成 · ${elapsed} 秒` : "生成服裝三視圖"}</span>{!loading && <ArrowUpRight size={20} />}</button>
+          <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在下方。</small>
+          {error && <div className="error" role="alert">{error}</div>}
         </section>
-        <aside className="panel result-panel" aria-live="polite">
-          <div className="panel-title"><h2>生成結果</h2><span>02／檢查與下載</span></div>
-          {!active ? <div className="empty"><span><Shirt size={30} /></span><strong>{loading ? "正在生成三個角度" : "等待生成"}</strong><p>{loading ? "圖片模型畫一張約需 30 秒到 3 分鐘，請不要關閉頁面。" : "完成左側資料後，結果會顯示在這裡。"}</p></div> : <div className="result-content">
-            <div className="outfit-preview"><img src={active.image} alt="生成的服裝三視圖" /></div>
-            <div className="outfit-actions"><button className="accept" onClick={() => void saveSheet("original")}><Download size={16} />下載原圖</button><button onClick={() => void saveSheet("normalized")}><Download size={16} />下載規格化版本</button></div>
-            {!qa?.ok && <button className="refit" disabled={loading} onClick={() => void generate(true)}><Sparkles size={15} />比例不對？用這張的衣服重新套到標準身體（再生成一次）</button>}
-            <div className="outfit-actions three">{["正面", "側面", "背面"].map((name, index) => <button key={name} disabled={!qa?.views[index]} onClick={() => void saveView(index)}><Download size={14} />{name}</button>)}</div>
-            {qa && <div className="detail"><h3>規格檢查 <b className={qa.ok ? "qa-ok" : "qa-warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
-              <ul className="qa-list">{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={15} /> : <TriangleAlert size={15} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>
-              <p className="qa-note">這是依規格自動量的參考，最後仍請用眼睛看：頭、帽子、眼鏡不能出現；脖子要平切；三個角度的衣服要是同一套。</p></div>}
-            {active.described && <div className="detail"><h3>AI 從照片讀到的衣服</h3><p>{active.described}</p><button className="text-link" onClick={() => { setDescription(active.described || ""); setFiles([]); }}>用這段文字當描述（不再附照片）</button></div>}
-            <div className="detail usage-detail"><h3>這次的用量</h3><p>{active.model} · {QUALITIES.find((q) => q.id === active.quality)?.label} · {active.seconds} 秒 · {active.usage.total.toLocaleString()} tokens · <b>約 {formatUsd(active.usage.costUsd)}</b>（{formatTwd(active.usage.costUsd)}）</p></div>
-          </div>}
-        </aside>
+        <section className="preview">
+          <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>{active ? "你的新服裝" : "三視圖預覽"}</h2></div><span className="badge">{active ? "生成結果" : "等待生成"}</span></div>
+          {active?.described && <p className="described"><b>AI 從照片讀到的衣服：</b>{active.described}<button onClick={() => { setDescription(active.described || ""); setFiles([]); }}>用這段文字當描述（不再附照片）</button></p>}
+          <div className={`canvas ${bg}`} aria-busy={loading}>
+            <div className="view-labels"><span>正面 <small>FRONT</small></span><span>側面 <small>SIDE →</small></span><span>背面 <small>BACK</small></span></div>
+            {active ? <img className="sheet" src={active.image} alt="生成的服裝正面、朝右側面、背面三視圖" /> : <div className="empty-note"><Shirt size={30} /><p>{loading ? "圖片模型正在畫三個角度…" : "完成左側設定後，三視圖會顯示在這裡。"}</p></div>}
+            {loading && <div className="loading"><LoaderCircle className="spin" size={32} /><strong>正在製作你的下一套服裝</strong><span>通常需要 20 秒到幾分鐘，請保持頁面開啟。</span></div>}
+          </div>
+          <div className="preview-bottom"><span>{active ? "透明 PNG · 請檢查三個角度與頸頂對齊" : "生成時會依固定規範替換為你的服裝。"}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
+          <div className="download-row"><button disabled={!active || loading} onClick={() => void saveSheet("original")}><Download size={17} />下載完整 PNG</button><div>{["正面", "側面", "背面"].map((name, index) => <button key={name} disabled={!qa?.views[index] || loading} onClick={() => void saveView(index)}>{name}<Download size={13} /></button>)}</div></div>
+          <p className="crop-note">各角度下載是依輪廓自動裁切；「規格化版本」會把三個角度放進同比例、腳底對齊的標準格子。</p>
+          {active && <div className="download-row" style={{ marginTop: 10 }}><button disabled={loading} onClick={() => void saveSheet("normalized")}><Download size={17} />下載規格化版本</button></div>}
+          {active && qa && <div className="qa"><h3>規格檢查 <b className={qa.ok ? "ok" : "warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
+            <ul>{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={14} /> : <TriangleAlert size={14} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>
+            <p className="qa-note">這是依規格自動量的參考，最後仍請用眼睛看：頭、帽子、眼鏡不能出現；脖子要平切；三個角度的衣服要是同一套。</p></div>}
+          {active && !qa?.ok && <button className="refit" disabled={loading} onClick={() => void generate(true)}><Sparkles size={14} />比例不對？用這張的衣服重新套到標準身體（再生成一次）</button>}
+          {active && <p className="usage-line">{active.model} · {QUALITIES.find((q) => q.id === active.quality)?.label} · {active.seconds} 秒 · {active.usage.total.toLocaleString()} tokens · <b>約 {formatUsd(active.usage.costUsd)}</b>（{formatTwd(active.usage.costUsd)}）</p>}
+          {items.length > 1 && <div className="variants">{items.map((item) => <button key={item.id} className={item.id === activeId ? "on" : ""} onClick={() => setActiveId(item.id)}><img src={item.image} alt={item.label} /><span>{item.label}</span></button>)}</div>}
+          <div className="guidance"><div><span>01 / REF</span><b>換穿搭，保留比例</b><p>照片只決定衣服款式。身體比例、圓潤手部與厚底鞋維持一致。</p></div><div><span>02 / STYLE</span><b>你的固定服裝系列</b><p>暖黑粗線條、清楚色塊與左上光源，讓每套服裝能接上同一個角色。</p></div></div>
+        </section>
       </div>
-      <section className="panel history-panel"><div className="history-heading"><div><span><Shirt size={20} /></span><div><h2>生成紀錄</h2><p>每次生成（成功與失敗）都會記錄，圖片也會保存，可以隨時重新打開。</p></div></div><button onClick={() => void loadHistory()}>重新整理</button></div>
-        <p className="outfit-totals">共 {totals.runs} 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）</p>
-        {historyError && <p className="error">{historyError}</p>}
-        {!records.length && !historyError ? <p className="history-empty">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="outfit-records">{records.map((record) => <article key={record.id} className={`outfit-record ${record.status}`}>
+      <section className="history">
+        <div className="section-head"><div className="preview-title"><span className="step">03</span><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
+        <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
+        {historyError && <div className="error">{historyError}</div>}
+        {!records.length && !historyError ? <p className="empty-note">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="records">{records.map((record) => <article key={record.id} className="record">
           {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><img src={record.imageUrl} alt={record.description || "生成結果"} loading="lazy" /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
-          <div className="record-main"><div className="history-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · {QUALITIES.find((q) => q.id === record.quality)?.label || record.quality}</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
+          <div className="record-main"><div className="record-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · {QUALITIES.find((q) => q.id === record.quality)?.label || record.quality}</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
             <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
             {record.described && record.description && <small>AI 讀到的衣服：{record.described}</small>}</div>
-          {record.imageUrl && <button className="view-history" onClick={() => openRecord(record)}>重新打開</button>}
+          {record.imageUrl && <button className="open-btn" onClick={() => openRecord(record)}>重新打開</button>}
         </article>)}</div>}
       </section>
-      {items.length > 1 && <section className="panel history-panel"><div className="history-heading"><div><span><Shirt size={20} /></span><div><h2>這次拜訪生成的版本</h2><p>只保留在這個頁面，重新整理就會消失，要用的請先下載。</p></div></div></div>
-        <div className="outfit-history">{items.map((item) => <button key={item.id} className={item.id === activeId ? "on" : ""} onClick={() => setActiveId(item.id)}><img src={item.image} alt={item.label} /><span>{item.label}</span></button>)}</div></section>}
-    </section>
-  </main>;
+      <footer><span>PIXEL OFFICE / CREATIVE TOOLS</span><span>每一套，都有你的風格。</span></footer>
+    </main>
+  </div>;
 }
