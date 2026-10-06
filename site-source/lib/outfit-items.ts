@@ -12,12 +12,14 @@ export function ensureItemsTable() {
       for (const column of ["item_id TEXT NOT NULL DEFAULT ''", "attempt INTEGER NOT NULL DEFAULT 1"]) await env.DB!.exec(`ALTER TABLE outfit_history ADD COLUMN ${column}`).catch(() => undefined);
       // 發佈給 Pixel Office 遊戲用的資料（三個角度裁好的身體圖尺寸、頸頂位置、頭的設定）；沒有就是還沒發佈
       await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN game_json TEXT NOT NULL DEFAULT ''").catch(() => undefined);
+      // 一次生成三組供選：目前選的是第幾組（0、1、2）
+      await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN variant INTEGER NOT NULL DEFAULT 0").catch(() => undefined);
     })
     .catch((error) => { ready = null; throw error; });
   return ready;
 }
 
-export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; game_json: string; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
+export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; game_json: string; variant: number; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
 
 export function itemPublic(row: ItemRow) {
   const parse = (value: string) => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
@@ -27,7 +29,8 @@ export function itemPublic(row: ItemRow) {
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at,
     game: parse(row.game_json), published: Boolean(row.game_json),
     coverUrl: row.cover_key ? `/api/outfit/items/${row.id}/cover` : "",
-    bodyUrl: row.generation_id ? `/api/outfit/history/${row.generation_id}/image` : "",
+    variant: row.variant || 0,
+    bodyUrl: row.generation_id ? `/api/outfit/history/${row.generation_id}/image?v=${row.variant || 0}` : "",
   };
 }
 
@@ -49,10 +52,10 @@ export async function createDraft(input: { id: string; account: string; name: st
 
 export async function setGeneration(id: string, generationId: string, description: string) {
   await ensureItemsTable();
-  await env.DB!.prepare("UPDATE outfit_items SET generation_id = ?, attempts = attempts + 1, description = CASE WHEN ? != '' THEN ? ELSE description END, head_json = '', views_json = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(generationId, description.slice(0, 1000), description.slice(0, 1000), id).run();
+  await env.DB!.prepare("UPDATE outfit_items SET generation_id = ?, variant = 0, attempts = attempts + 1, description = CASE WHEN ? != '' THEN ? ELSE description END, head_json = '', views_json = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(generationId, description.slice(0, 1000), description.slice(0, 1000), id).run();
 }
 
-export type ItemUpdate = { name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null; game?: unknown; viewImages?: Uint8Array[] | null };
+export type ItemUpdate = { variant?: number; name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null; game?: unknown; viewImages?: Uint8Array[] | null };
 
 export async function updateItem(row: ItemRow, update: ItemUpdate) {
   await ensureItemsTable();
@@ -67,8 +70,8 @@ export async function updateItem(row: ItemRow, update: ItemUpdate) {
   const isDefault = status === "completed" ? (update.isDefault === undefined ? Boolean(row.is_default) : update.isDefault) : false;
   const statements = [];
   if (isDefault) statements.push(env.DB!.prepare("UPDATE outfit_items SET is_default = 0 WHERE owner_account = ? AND id != ?").bind(row.owner_account, row.id));
-  statements.push(env.DB!.prepare("UPDATE outfit_items SET name = ?, status = ?, is_default = ?, head_json = ?, views_json = ?, cover_key = ?, game_json = ?, updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? = 'completed' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id = ?")
-    .bind(update.name === undefined ? row.name : update.name, status, isDefault ? 1 : 0, update.head === undefined ? row.head_json : JSON.stringify(update.head), update.views === undefined ? row.views_json : JSON.stringify(update.views), coverKey, gameJson, status, row.id));
+  statements.push(env.DB!.prepare("UPDATE outfit_items SET name = ?, status = ?, is_default = ?, variant = ?, head_json = ?, views_json = ?, cover_key = ?, game_json = ?, updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? = 'completed' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id = ?")
+    .bind(update.name === undefined ? row.name : update.name, status, isDefault ? 1 : 0, update.variant === undefined ? (row.variant || 0) : update.variant, update.head === undefined ? row.head_json : JSON.stringify(update.head), update.views === undefined ? row.views_json : JSON.stringify(update.views), coverKey, gameJson, status, row.id));
   await env.DB!.batch(statements);
 }
 

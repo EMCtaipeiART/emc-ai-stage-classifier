@@ -11,8 +11,10 @@ export const runtime = "edge";
 // 生成一張約 30–120 秒，Cloudflare 對「一直沒有回應」的連線約 100 秒就會中斷（524）。
 // 所以先回應、之後每 8 秒送一個空白當心跳，最後才送 JSON（前端用 JSON.parse，前面的空白不影響）。
 const HEARTBEAT_MS = 8000;
-const OPENAI_TIMEOUT_MS = 240_000;
-const QUALITIES = ["low", "medium", "high"];
+const OPENAI_TIMEOUT_MS = 420_000;   // 最高品質一次三張，可能要好幾分鐘
+// 品質與模型固定（2026-10-06 使用者指定：預設最高、不再提供選擇）；用戶端送來的 quality／model 一律忽略
+const QUALITY = "high";
+const VARIANTS = 3;                  // 一次生成三組供選
 
 function base64ToBlobBytes(base64: string) {
   const binary = atob(base64);
@@ -92,7 +94,7 @@ export async function POST(request: Request) {
   let form: FormData;
   try { form = await request.formData(); } catch { return Response.json({ error: "請求格式不正確。" }, { status: 400 }); }
   const description = String(form.get("description") || "").trim().slice(0, 600);
-  const quality = QUALITIES.includes(String(form.get("quality"))) ? String(form.get("quality")) : "medium";
+  const quality = QUALITY;
   const refit = String(form.get("mode")) === "refit";
   // 預設用「六套現有服裝的參考圖」當風格與比例參考（細節與線條最精緻、人物最大）；只有修正比例時才用無頭身體底圖。
   const base: "template" | "sheet" = refit || String(form.get("base")) === "template" ? "template" : "sheet";
@@ -103,8 +105,7 @@ export async function POST(request: Request) {
   if (refit && !photos.length) return Response.json({ error: "需要附上要修正的圖片。" }, { status: 400 });
   if (!description && !photos.length) return Response.json({ error: "請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。" }, { status: 400 });
 
-  const requested = String(form.get("model") || "");
-  const model = /^[a-z0-9][a-z0-9.\-]{2,60}$/.test(requested) && /image/i.test(requested) ? requested : (process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT);
+  const model = process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT;
   let promptDescription = description, editPhotos = photos;
   const buildBody = (transparent: boolean) => {
   const body = new FormData();
@@ -114,7 +115,7 @@ export async function POST(request: Request) {
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
   body.set("output_format", "png");
-  body.set("n", "1");
+  body.set("n", String(VARIANTS));
   if (base === "sheet") body.append("image[]", base64ToBlob(OUTFIT_REFERENCE_B64, "image/webp"), "outfit-reference.webp");
   else body.append("image[]", base64ToBlob(OUTFIT_TEMPLATE_B64, "image/png"), "outfit-template.png");
   editPhotos.forEach((photo, index) => body.append("image[]", photo, photo.name || `photo-${index + 1}`));
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
           const refund = await designApi("coinRefund", { ref: generationId, reason: message.slice(0, 60) }, true).catch(() => null);
           refunded = Boolean(refund?.ok && (refund.refunded || refund.reason === "already-refunded"));
         }
-        await saveOutfitRecord({ ...base, coinCost: refunded ? 0 : coin.charged, status: "failed", seconds: seconds(), usage: { input: 0, output: 0, total: 0, costUsd: 0 }, error: message, png: null }).catch(() => undefined);
+        await saveOutfitRecord({ ...base, coinCost: refunded ? 0 : coin.charged, status: "failed", seconds: seconds(), usage: { input: 0, output: 0, total: 0, costUsd: 0 }, error: message, pngs: [] }).catch(() => undefined);
         send({ error: message + (refunded ? "（已退回這次扣的平台幣）" : ""), recordId: base.id, coin: { ...coin, refunded } });
       };
       try {
@@ -182,29 +183,29 @@ export async function POST(request: Request) {
           payload = await response.json().catch(() => ({})) as Payload;
         }
         if (!response.ok) { await fail(friendlyError(response.status, payload.error?.message || "")); return; }
-        const b64 = payload.data?.[0]?.b64_json;
-        if (!b64) { await fail("OpenAI 沒有回傳圖片，請再試一次。"); return; }
+        const all = (payload.data || []).map((item) => item.b64_json || "").filter(Boolean);
+        if (!all.length) { await fail("OpenAI 沒有回傳圖片，請再試一次。"); return; }
         const usage = { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: payload.usage?.total_tokens ?? 0, costUsd: estimateCostUsd(payload.usage) };
-        const bytes = base64ToBlobBytes(b64);
+        const pngs = all.map(base64ToBlobBytes);
         let recordWarning = "";
         let finalItemId = itemId;
         try {
-          await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", png: bytes });
+          await saveOutfitRecord({ ...base, described, transparent, status: "ok", seconds: seconds(), usage, error: "", pngs });
           // 這次的結果掛到製作單上：新的一件就建立草稿，重新生成就換成這次的圖（之前的圖仍留在生成紀錄裡）
           const text = [description, described].filter(Boolean).join("；");
           if (itemId) await setGeneration(itemId, generationId, text);
           else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId }); }
         } catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
-          recordId: base.id, recordWarning, coin, itemId: finalItemId, attempt, regenerationCost: 100,
-          image: `data:image/png;base64,${b64}`,
+          recordId: base.id, recordWarning, coin, itemId: finalItemId, attempt, regenerationCost: 50,
+          images: all.map((b64) => `data:image/png;base64,${b64}`),
           model, quality, transparent, described,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,
           usage: { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: payload.usage?.total_tokens ?? 0, costUsd: estimateCostUsd(payload.usage) },
         });
       } catch (cause) {
         const timedOut = cause instanceof DOMException && cause.name === "TimeoutError";
-        await fail(timedOut ? "生成逾時（超過 4 分鐘），請改用較低的品質再試。" : (cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"));
+        await fail(timedOut ? "生成逾時（超過 7 分鐘），請稍後再試；這次扣的平台幣會退回。" : (cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"));
       } finally {
         clearInterval(heartbeat);
         controller.close();

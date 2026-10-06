@@ -7,24 +7,18 @@ import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type Vie
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
 
-type Quality = "low" | "medium" | "high";
-type HistoryRecord = { id: string; createdAt: string; userId: string; status: string; model: string; quality: string; description: string; described: string; photoCount: number; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; transparent: boolean; error: string; imageUrl: string };
+type Quality = string;
+type HistoryRecord = { id: string; createdAt: string; userId: string; status: string; model: string; quality: string; description: string; described: string; photoCount: number; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; transparent: boolean; error: string; imageUrl: string; variants?: number };
 // D1 的 CURRENT_TIMESTAMP 是不帶時區的 UTC 字串
 const formatTime = (value: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(value) ? value : `${value.replace(" ", "T")}Z`).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" });
 const userLabel = (id: string) => id === "team-password" ? "團隊密碼" : id === "local-user" ? "本機" : id;
-type Generated = { id: string; described?: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
+type Generated = { id: string; candidates: string[]; pick: number; described?: string; transparent?: boolean; image: string; model: string; quality: Quality; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; label: string };
 
-const QUALITIES: Array<{ id: Quality; label: string; hint: string }> = [
-  { id: "low", label: "快速", hint: "約 20–40 秒，適合先看大概" },
-  { id: "medium", label: "標準", hint: "約 40–90 秒（建議）" },
-  { id: "high", label: "高品質", hint: "約 1.5–3 分鐘，費用最高" },
-];
 const EXAMPLES = ["紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋", "橘色連帽衫、淺色寬牛仔褲、黑色高筒帆布鞋", "灰色針織背心、白襯衫、卡其長褲、棕色短靴"];
 type Bg = "check" | "light" | "dark";
 type FitView = { x0: number; y0: number; x1: number; y1: number; neckX: number; neckY: number };
 type Item = { id: string; name: string; status: "draft" | "completed"; isDefault: boolean; description: string; attempts: number; head: HeadFit | null; views: FitView[] | null; createdAt: string; updatedAt: string; completedAt: string | null; coverUrl: string; bodyUrl: string; published: boolean };
 type FitBody = { img: HTMLImageElement; views: FitView[] };
-const REGEN_COST = 100;
 const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("圖片載入失敗")); image.src = src; });
 
 /** 把頭像套到三個角度上：頭的大小依這個角度的身體高度換算（遊戲的身體高度是 168），位置接在頸頂；
@@ -80,7 +74,7 @@ async function prepareBody(src: string): Promise<FitBody> {
   return { img, views: views.map((v, i) => ({ ...v, neckX: necks[i].x, neckY: necks[i].y })) };
 }
 type WalletEntry = { seq: number; at: string; kind: string; label: string; amount: number; counterparty: string; memo: string; ref: string };
-type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
+type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
 const TOKEN_KEY = "emcEditorToken";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 /** 圖片要帶登入 token 才拿得到（<img> 不能帶標頭），所以用 fetch 取回再顯示。 */
@@ -140,9 +134,6 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 export default function OutfitPage() {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
-  const [quality, setQuality] = useState<Quality>("medium");
-  const [models, setModels] = useState<string[]>([]);
-  const [model, setModel] = useState("");
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState("");
@@ -230,23 +221,20 @@ export default function OutfitPage() {
   function openRecord(record: HistoryRecord) {
     if (!record.imageUrl) return;
     void (async () => {
-    const blobUrl = await fetch(record.imageUrl, { headers: authHeaders() }).then((response) => response.blob()).then((blob) => URL.createObjectURL(blob)).catch(() => "");
-    if (!blobUrl) { setError("讀取這張圖片失敗"); return; }
-    const item: Generated = { id: record.id, image: blobUrl, model: record.model, quality: record.quality as Quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
-    setItems((current) => [item, ...current.filter((existing) => existing.id !== record.id)].slice(0, 8)); setActiveId(record.id);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+      const count = Math.max(1, record.variants || 1);
+      const urls: string[] = [];
+      for (let k = 0; k < count; k += 1) {
+        const blobUrl = await fetch(`${record.imageUrl}${record.imageUrl.includes("?") ? "&" : "?"}v=${k}`, { headers: authHeaders() }).then((response) => response.ok ? response.blob() : Promise.reject(new Error("img"))).then((blob) => URL.createObjectURL(blob)).catch(() => "");
+        if (blobUrl) urls.push(blobUrl);
+      }
+      if (!urls.length) { setError("讀取這張圖片失敗"); return; }
+      const item: Generated = { id: record.id, candidates: urls, pick: 0, image: urls[0], model: record.model, quality: record.quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
+      setItems((current) => [item, ...current.filter((existing) => existing.id !== record.id)].slice(0, 8)); setActiveId(record.id);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     })();
   }
 
-  // 這把金鑰能用的圖片模型（預設用後端指定的模型 gpt-image-2.5-sunburst）
-  useEffect(() => {
-    if (!token) return;
-    fetch("/api/outfit", { headers: authHeaders() }).then((response) => response.json() as Promise<{ models?: string[]; current?: string }>).then((payload) => {
-      const list = payload.models || [];
-      setModels(list);
-      setModel(payload.current && list.includes(payload.current) ? payload.current : (list.includes("gpt-image-2.5-sunburst") ? "gpt-image-2.5-sunburst" : list[list.length - 1] || ""));
-    }).catch(() => undefined);
-  }, [token]);
+
 
   useEffect(() => {
     if (!loading) return;
@@ -279,7 +267,7 @@ export default function OutfitPage() {
     setLoading(true); setElapsed(0); setError("");
     try {
       const form = new FormData();
-      form.set("description", description.trim() || (itemId ? library.find((entry) => entry.id === itemId)?.description || "" : "")); form.set("quality", quality); if (model) form.set("model", model);
+      form.set("description", description.trim() || (itemId ? library.find((entry) => entry.id === itemId)?.description || "" : "")); 
       if (itemId) form.set("itemId", itemId);
       if (refit && active) {
         // 把目前這張當成「衣服」，要求重新套到標準身體上
@@ -288,12 +276,12 @@ export default function OutfitPage() {
       } else files.forEach((file) => form.append("images", file));
       const response = await fetch("/api/outfit", { method: "POST", headers: authHeaders(), body: form });
       const raw = (await response.text()).trim();
-      let payload: { error?: string; itemId?: string; attempt?: number; image?: string; described?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
+      let payload: { error?: string; itemId?: string; attempt?: number; images?: string[]; described?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };
       try { payload = JSON.parse(raw); }
       catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）：${raw.slice(0, 80)}`); }
-      if (!response.ok || payload.error || !payload.image) throw new Error(payload.error || "生成失敗，請稍後再試。");
-      const image = payload.transparent === false ? removeWhiteBackground(await loadImage(payload.image)) : payload.image;
-      const item: Generated = { id: crypto.randomUUID(), image, model: payload.model || "", quality: payload.quality || quality, seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成", described: payload.described || "" };
+      if (!response.ok || payload.error || !payload.images?.length) throw new Error(payload.error || "生成失敗，請稍後再試。");
+      const candidates = payload.transparent === false ? await Promise.all(payload.images.map(async (src) => removeWhiteBackground(await loadImage(src)))) : payload.images;
+      const item: Generated = { id: crypto.randomUUID(), candidates, pick: 0, image: candidates[0], model: payload.model || "", quality: payload.quality || "high", seconds: payload.seconds || 0, usage: payload.usage || { input: 0, output: 0, total: 0, costUsd: 0 }, label: description.trim().slice(0, 24) || "參考圖生成", described: payload.described || "" };
       setItems((current) => [item, ...current].slice(0, 8)); setActiveId(item.id);
       if (payload.itemId) setJob({ id: payload.itemId, attempts: payload.attempt || 1, status: "draft" });
       setPhase("make"); setFitBody(null);
@@ -333,8 +321,12 @@ export default function OutfitPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   /** 剛生成好 → 進入「套上大頭」。 */
+  function pickCandidate(k: number) {
+    setItems((current) => current.map((entry) => entry.id === activeId ? { ...entry, pick: k, image: entry.candidates[k] } : entry));
+  }
   async function startFit() {
     if (!active || !job) return;
+    if (active.candidates.length > 1) await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ variant: active.pick }) }).catch(() => undefined);
     try { enterFit(await prepareBody(active.image), defaultHeadFit(ownHeadIndex()), library.find((entry) => entry.id === job.id)?.name || "", false); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "無法套上大頭"); }
   }
@@ -344,7 +336,7 @@ export default function OutfitPage() {
       const blobUrl = await fetch(item.bodyUrl, { headers: authHeaders() }).then((response) => response.ok ? response.blob() : Promise.reject(new Error("讀取衣服圖片失敗"))).then((blob) => URL.createObjectURL(blob));
       const body = await prepareBody(blobUrl);
       setJob({ id: item.id, attempts: item.attempts, status: item.status });
-      const generated: Generated = { id: `item-${item.id}-${item.attempts}`, image: blobUrl, model: "", quality: "medium", seconds: 0, usage: { input: 0, output: 0, total: 0, costUsd: 0 }, label: item.name || item.description.slice(0, 24) || "服裝" };
+      const generated: Generated = { id: `item-${item.id}-${item.attempts}`, candidates: [blobUrl], pick: 0, image: blobUrl, model: "", quality: "high", seconds: 0, usage: { input: 0, output: 0, total: 0, costUsd: 0 }, label: item.name || item.description.slice(0, 24) || "服裝" };
       setItems((current) => [generated, ...current.filter((entry) => entry.id !== generated.id)].slice(0, 8)); setActiveId(generated.id);
       enterFit(body, item.head || defaultHeadFit(ownHeadIndex()), item.name, item.isDefault);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "打開失敗"); }
@@ -360,7 +352,7 @@ export default function OutfitPage() {
     setFitBusy(true); setError("");
     try {
       const cover = composeFit(fitBody, headsImg, fit).toDataURL("image/png");
-      const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
+      const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(active && active.candidates.length > 1 ? { variant: active.pick } : {}), ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
       setJob({ ...job, status: complete || job.status === "completed" ? "completed" : "draft" });
@@ -391,7 +383,8 @@ export default function OutfitPage() {
   }
   /** 新的一件：不帶製作單編號，扣 200 點。 */
   function startNew() { setJob(null); setPhase("make"); setFitBody(null); void generate(); }
-  const canRegenerate = Boolean(job && job.status === "draft" && wallet && (!wallet.designer || wallet.balance >= REGEN_COST));
+  const regenCost = wallet?.spendPerRegeneration ?? 50;
+  const canRegenerate = Boolean(job && job.status === "draft" && wallet && (!wallet.designer || wallet.balance >= regenCost));
 
   const needsCoins = Boolean(wallet?.designer);
   const canGenerate = Boolean(token && wallet && (!needsCoins || wallet.balance >= wallet.spendPerGeneration) && (needsCoins || wallet.admin));
@@ -421,7 +414,7 @@ export default function OutfitPage() {
               : !wallet ? <div className="wallet-locked"><span>讀取平台幣中…</span></div>
               : !wallet.designer ? <div className="wallet-locked"><b>{wallet.admin ? "管理員" : "沒有設計師身分"}</b><span>{wallet.admin ? "你沒有設計師平台幣，生成不扣點，所有紀錄仍會留存。" : "只有設計師帳號有平台幣，才能使用服裝生成器。"}</span></div>
               : <>
-                <div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">每次生成 {fmtCoin(wallet.spendPerGeneration)} 點<br />完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div>
+                <div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">每次生成 {fmtCoin(wallet.spendPerGeneration)} 點（一次三組供選）<br />不滿意再生成三組 {fmtCoin(wallet.spendPerRegeneration)} 點<br />完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div>
                 {wallet.balance < wallet.spendPerGeneration && <p className="wallet-warn">餘額不足 {fmtCoin(wallet.spendPerGeneration)} 點，還不能生成；完成案件累積，或請同事轉讓。</p>}
                 <details className="wallet-transfer"><summary>轉讓點數給同事</summary>
                   <div className="transfer-form"><select value={transfer.to} onChange={(e) => setTransfer({ ...transfer, to: e.target.value })}><option value="">選擇設計師</option>{wallet.directory.map((name) => <option key={name} value={name}>{name}</option>)}</select><input type="number" min="0.1" step="0.1" placeholder="點數" value={transfer.amount} onChange={(e) => setTransfer({ ...transfer, amount: e.target.value })} /><input type="text" maxLength={60} placeholder="備註（選填）" value={transfer.memo} onChange={(e) => setTransfer({ ...transfer, memo: e.target.value })} /><button disabled={transferBusy || !transfer.to || !transfer.amount} onClick={() => void submitTransfer()}>{transferBusy ? "轉讓中…" : "確認轉讓"}</button></div>
@@ -437,11 +430,8 @@ export default function OutfitPage() {
           <textarea id="outfit-description" value={description} maxLength={600} disabled={loading} placeholder="例如：短版粉色外套、黑色寬褲、厚底鞋。保留珍珠滾邊，移除包包。" onChange={(e) => setDescription(e.target.value)} />
           <div className="prompt-foot"><span>只上傳圖片時，會先讀出圖中的衣服再生成。</span><span>{description.length}/600</span></div>
           <div className="presets">{EXAMPLES.map((example) => <button key={example} onClick={() => setDescription(example)} disabled={loading}>{example.split("、").slice(0, 2).join("＋")}</button>)}</div>
-          <div className="settings"><SlidersHorizontal size={16} /><label htmlFor="outfit-quality">生成品質</label></div>
-          <div className="quality-row" role="radiogroup" aria-label="品質" id="outfit-quality">{QUALITIES.map((option) => <button key={option.id} type="button" role="radio" aria-checked={quality === option.id} className={quality === option.id ? "on" : ""} disabled={loading} onClick={() => setQuality(option.id)}><strong>{option.label}</strong><small>{option.hint}</small></button>)}</div>
-          {models.length > 1 && <label className="model-row">圖片模型<select value={model} disabled={loading} onChange={(e) => setModel(e.target.value)}>{models.map((id) => <option key={id} value={id}>{id}</option>)}</select></label>}
           <div className="rules" style={{ marginTop: 18 }}><Check size={15} /><span>已套用固定規範：無頭身體、朝右側面、透明背景</span></div>
-          <button className="generate" onClick={() => startNew()} disabled={loading || !canGenerate || (!description.trim() && !files.length)}>{loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}<span>{loading ? `正在生成 · ${elapsed} 秒` : `生成新的一件${wallet?.designer ? `（${fmtCoin(wallet.spendPerGeneration)} 點）` : ""}`}</span>{!loading && <ArrowUpRight size={20} />}</button>
+          <button className="generate" onClick={() => startNew()} disabled={loading || !canGenerate || (!description.trim() && !files.length)}>{loading ? <LoaderCircle size={19} className="spin" /> : <Sparkles size={19} />}<span>{loading ? `正在生成 · ${elapsed} 秒` : `生成新的一件${wallet?.designer ? `（${fmtCoin(wallet.spendPerGeneration)} 點・一次三組）` : ""}`}</span>{!loading && <ArrowUpRight size={20} />}</button>
           <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在下方。</small>
           {error && <div className="error" role="alert">{error}</div>}
         </section>
@@ -467,7 +457,7 @@ export default function OutfitPage() {
                 <button className="generate" disabled={fitBusy || !fitName.trim()} onClick={() => void saveFit(job?.status !== "completed")}>{fitBusy ? <LoaderCircle size={18} className="spin" /> : <Check size={18} />}<span>{job?.status === "completed" ? "儲存修改" : "完成服裝製作"}</span></button>
                 <button className="ghost" disabled={fitBusy} onClick={() => setPhase("make")}>返回上一步</button>
               </div>
-              {job?.status === "draft" && <button className="refit" disabled={loading || fitBusy || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />對衣服不滿意？重新生成（再扣 {REGEN_COST} 點，仍是同一件）</button>}
+              {job?.status === "draft" && <button className="refit" disabled={loading || fitBusy || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />對這一輪三組都不滿意？再生成三組（再扣 {fmtCoin(regenCost)} 點，仍是同一件）</button>}
             </div>
           </div> : <>
           <div className={`canvas ${bg}`} aria-busy={loading}>
@@ -475,18 +465,19 @@ export default function OutfitPage() {
             {active ? <img className="sheet" src={active.image} alt="生成的服裝正面、朝右側面、背面三視圖" /> : <div className="empty-note"><Shirt size={30} /><p>{loading ? "圖片模型正在畫三個角度…" : "完成左側設定後，三視圖會顯示在這裡。"}</p></div>}
             {loading && <div className="loading"><LoaderCircle className="spin" size={32} /><strong>正在製作你的下一套服裝</strong><span>通常需要 20 秒到幾分鐘，請保持頁面開啟。</span></div>}
           </div>
+          {active && active.candidates.length > 1 && <div className="cand-row" role="radiogroup" aria-label="三組供選">{active.candidates.map((src, k) => <button key={k} type="button" role="radio" aria-checked={active.pick === k} className={active.pick === k ? "on" : ""} disabled={loading} onClick={() => pickCandidate(k)}><span className="cand-img"><img src={src} alt={`方案 ${k + 1}`} /></span><b>方案 {k + 1}{active.pick === k ? "（目前選用）" : ""}</b></button>)}</div>}
           <div className="preview-bottom"><span>{active ? "透明 PNG · 請檢查三個角度與頸頂對齊" : "生成時會依固定規範替換為你的服裝。"}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
           <div className="download-row"><button disabled={!active || loading} onClick={() => void saveSheet("original")}><Download size={17} />下載完整 PNG</button><div>{["正面", "側面", "背面"].map((name, index) => <button key={name} disabled={!qa?.views[index] || loading} onClick={() => void saveView(index)}>{name}<Download size={13} /></button>)}</div></div>
           <p className="crop-note">各角度下載是依輪廓自動裁切；「規格化版本」會把三個角度放進同比例、腳底對齊的標準格子。</p>
           {active && <div className="download-row" style={{ marginTop: 10 }}><button disabled={loading} onClick={() => void saveSheet("normalized")}><Download size={17} />下載規格化版本</button></div>}
-          {active && job && <div className="job-card"><div><b>這件服裝 · 第 {job.attempts} 次生成</b><span>{job.status === "draft" ? "看起來滿意就進入下一步，套上大頭微調位置；不滿意可以重新生成（仍是同一件，每次再扣 100 點）。" : "這件已完成製作；可以在下面「我的服裝」編輯或刪除。"}</span></div>
-            <div className="job-actions">{job.status === "draft" && <button className="primary" disabled={loading || !qa || qa.views.length !== 3} onClick={() => void startFit()}>下一步：套上大頭 <ArrowRight size={15} /></button>}{job.status === "draft" && <button disabled={loading || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />不滿意？重新生成（再扣 {REGEN_COST} 點）</button>}</div>
-            {job.status === "draft" && wallet?.designer && wallet.balance < REGEN_COST && <p className="wallet-warn">餘額不足 {REGEN_COST} 點，還不能重新生成。</p>}</div>}
+          {active && job && <div className="job-card"><div><b>這件服裝 · 第 {job.attempts} 次生成</b><span>{job.status === "draft" ? "在上面三組裡點選一組，滿意就進入下一步，套上大頭微調位置；三組裡挑一組；都不滿意可以再生成三組（仍是同一件，每次再扣 {fmtCoin(regenCost)} 點）。" : "這件已完成製作；可以在下面「我的服裝」編輯或刪除。"}</span></div>
+            <div className="job-actions">{job.status === "draft" && <button className="primary" disabled={loading || !qa || qa.views.length !== 3} onClick={() => void startFit()}>下一步：套上大頭 <ArrowRight size={15} /></button>}{job.status === "draft" && <button disabled={loading || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />不滿意？再生成三組（再扣 {fmtCoin(regenCost)} 點）</button>}</div>
+            {job.status === "draft" && wallet?.designer && wallet.balance < regenCost && <p className="wallet-warn">餘額不足 {fmtCoin(regenCost)} 點，還不能再生成。</p>}</div>}
           {active && qa && <div className="qa"><h3>規格檢查 <b className={qa.ok ? "ok" : "warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
             <ul>{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={14} /> : <TriangleAlert size={14} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>
             <p className="qa-note">這是依規格自動量的參考，最後仍請用眼睛看：頭、帽子、眼鏡不能出現；脖子要平切；三個角度的衣服要是同一套。</p></div>}
-          {active && !qa?.ok && <button className="refit" disabled={loading} onClick={() => void generate(true, job?.id || "")}><Sparkles size={14} />比例不對？用這張的衣服重新套到標準身體（{job ? `再扣 ${REGEN_COST} 點` : "再生成一次"}）</button>}
-          {active && <p className="usage-line">{active.model} · {QUALITIES.find((q) => q.id === active.quality)?.label} · {active.seconds} 秒 · {active.usage.total.toLocaleString()} tokens · <b>約 {formatUsd(active.usage.costUsd)}</b>（{formatTwd(active.usage.costUsd)}）</p>}
+          {active && !qa?.ok && <button className="refit" disabled={loading} onClick={() => void generate(true, job?.id || "")}><Sparkles size={14} />比例不對？用這張的衣服重新套到標準身體（{job ? `再扣 ${fmtCoin(regenCost)} 點` : "再生成一次"}）</button>}
+          {active && <p className="usage-line">{active.model} · 最高品質 · {active.seconds} 秒 · {active.usage.total.toLocaleString()} tokens · <b>約 {formatUsd(active.usage.costUsd)}</b>（{formatTwd(active.usage.costUsd)}）</p>}
           {items.length > 1 && <div className="variants">{items.map((item) => <button key={item.id} className={item.id === activeId ? "on" : ""} onClick={() => setActiveId(item.id)}><img src={item.image} alt={item.label} /><span>{item.label}</span></button>)}</div>}
           <div className="guidance"><div><span>01 / REF</span><b>換穿搭，保留比例</b><p>照片只決定衣服款式。身體比例、圓潤手部與厚底鞋維持一致。</p></div><div><span>02 / STYLE</span><b>你的固定服裝系列</b><p>暖黑粗線條、清楚色塊與左上光源，讓每套服裝能接上同一個角色。</p></div></div>
           </>}
@@ -508,7 +499,7 @@ export default function OutfitPage() {
         {historyError && <div className="error">{historyError}</div>}
         {!records.length && !historyError ? <p className="empty-note">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="records">{records.map((record) => <article key={record.id} className="record">
           {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><AuthImage url={record.imageUrl} token={token} alt={record.description || "生成結果"} /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
-          <div className="record-main"><div className="record-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · {QUALITIES.find((q) => q.id === record.quality)?.label || record.quality}</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
+          <div className="record-main"><div className="record-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · 最高品質</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
             <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
             {record.described && record.description && <small>AI 讀到的衣服：{record.described}</small>}</div>
