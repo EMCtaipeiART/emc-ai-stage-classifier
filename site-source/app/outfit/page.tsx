@@ -181,6 +181,21 @@ export default function OutfitPage() {
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
 
+  // 內嵌在設計需求系統右側時：網址 # 後面帶 embed=1（隱藏自己的頁首）與 theme；之後深淺模式由外層用 postMessage 同步。
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [embed, setEmbed] = useState(false);
+  useEffect(() => {
+    const fromHash = location.hash.match(/[#&]theme=(dark|light)/)?.[1] as "light" | "dark" | undefined;
+    setEmbed(/[#&]embed=1/.test(location.hash) || window.parent !== window);
+    setTheme(fromHash || (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+    const onMessage = (event: MessageEvent) => {
+      if (!/^https:\/\/emctaipeiart\.github\.io$|^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(event.origin)) return;
+      const data = event.data as { type?: string; theme?: string } | null;
+      if (data && data.type === "emcTheme" && (data.theme === "dark" || data.theme === "light")) setTheme(data.theme);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
   // 登入：設計需求系統把 token 放在網址的 #t=…（# 後面的內容不會送到伺服器），這裡收下來存在這個分頁、立刻從網址拿掉。
   useEffect(() => {
     let value = "";
@@ -407,7 +422,7 @@ export default function OutfitPage() {
     download(cropCanvas(image, qa.views[index]).toDataURL("image/png"), `outfit-${active.label || "sheet"}-${["front", "side", "back"][index]}.png`);
   }
 
-  return <div className="studio">
+  return <div className={"studio" + (embed ? " embed" : "")} data-theme={theme}>
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
