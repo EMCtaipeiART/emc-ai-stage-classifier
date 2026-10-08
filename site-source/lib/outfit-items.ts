@@ -14,12 +14,14 @@ export function ensureItemsTable() {
       await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN game_json TEXT NOT NULL DEFAULT ''").catch(() => undefined);
       // 一次生成三組供選：目前選的是第幾組（0、1、2）
       await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN variant INTEGER NOT NULL DEFAULT 0").catch(() => undefined);
+      // 製作單種類：outfit（服裝，預設）或 head（頭像）
+      await env.DB!.exec("ALTER TABLE outfit_items ADD COLUMN kind TEXT NOT NULL DEFAULT 'outfit'").catch(() => undefined);
     })
     .catch((error) => { ready = null; throw error; });
   return ready;
 }
 
-export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; game_json: string; variant: number; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
+export type ItemRow = { id: string; owner_account: string; owner_name: string; name: string; status: string; is_default: number; description: string; generation_id: string; attempts: number; head_json: string; views_json: string; cover_key: string; game_json: string; variant: number; kind: string; created_at: string; updated_at: string; completed_at: string | null; deleted_at: string | null };
 
 export function itemPublic(row: ItemRow) {
   const parse = (value: string) => { try { return value ? JSON.parse(value) : null; } catch { return null; } };
@@ -29,7 +31,7 @@ export function itemPublic(row: ItemRow) {
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at,
     game: parse(row.game_json), published: Boolean(row.game_json),
     coverUrl: row.cover_key ? `/api/outfit/items/${row.id}/cover` : "",
-    variant: row.variant || 0,
+    variant: row.variant || 0, kind: row.kind === "head" ? "head" : "outfit",
     bodyUrl: row.generation_id ? `/api/outfit/history/${row.generation_id}/image?v=${row.variant || 0}` : "",
   };
 }
@@ -45,9 +47,9 @@ export async function getItem(id: string): Promise<ItemRow | null> {
   return await env.DB!.prepare("SELECT * FROM outfit_items WHERE id = ?").bind(id).first<ItemRow>();
 }
 
-export async function createDraft(input: { id: string; account: string; name: string; description: string; generationId: string }) {
+export async function createDraft(input: { id: string; account: string; name: string; description: string; generationId: string; kind?: "outfit" | "head" }) {
   await ensureItemsTable();
-  await env.DB!.prepare("INSERT INTO outfit_items (id, owner_account, owner_name, description, generation_id, attempts) VALUES (?, ?, ?, ?, ?, 1)").bind(input.id, input.account, input.name, input.description.slice(0, 1000), input.generationId).run();
+  await env.DB!.prepare("INSERT INTO outfit_items (id, owner_account, owner_name, description, generation_id, attempts, kind) VALUES (?, ?, ?, ?, ?, 1, ?)").bind(input.id, input.account, input.name, input.description.slice(0, 1000), input.generationId, input.kind === "head" ? "head" : "outfit").run();
 }
 
 export async function setGeneration(id: string, generationId: string, description: string) {
@@ -87,7 +89,7 @@ export async function itemCover(row: ItemRow): Promise<ReadableStream | null> {
 /** Pixel Office 遊戲用：已完成、已發佈、有設計師名字的服裝（公開，不含帳號）。 */
 export async function listPublishedItems() {
   await ensureItemsTable();
-  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' ORDER BY updated_at DESC LIMIT 300").all<ItemRow>();
+  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' AND kind = 'outfit' ORDER BY updated_at DESC LIMIT 300").all<ItemRow>();
   return (results || []).map((row) => {
     let game = null;
     try { game = JSON.parse(row.game_json); } catch { /* 壞掉的就略過 */ }

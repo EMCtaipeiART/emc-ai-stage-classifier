@@ -151,3 +151,5 @@
 .studio .fit-canvas{padding:16px 10px;min-height:0;display:block;text-align:center}.studio .fit-canvas canvas{display:inline-block;width:auto;max-width:100%;height:auto}.studio .zoom-toggle{border:0;background:none;color:var(--green);text-decoration:underline;font-size:inherit;padding:0 2px}
 .studio{min-height:100vh}
 html:has(.studio[data-theme=dark]),html:has(.studio[data-theme=dark]) body{background:#151815}
+
+.studio .mode-tabs{display:inline-flex;gap:4px;padding:4px;margin:0 0 20px;background:var(--soft);border:1px solid var(--line);border-radius:12px}.studio .mode-tabs button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px}.studio .mode-tabs button.on{background:var(--surface);color:var(--green);box-shadow:0 1px 3px rgba(0,0,0,.12)}

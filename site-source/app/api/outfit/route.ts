@@ -5,6 +5,8 @@ import { createDraft, getItem, setGeneration } from "@/lib/outfit-items";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
+import { buildHeadPrompt, DESCRIBE_HEAD_INSTRUCTIONS } from "@/lib/head-spec";
+import { HEAD_REFERENCE_B64 } from "@/lib/head-reference";
 
 export const runtime = "edge";
 
@@ -47,8 +49,8 @@ type DescribePayload = { output_text?: string; output?: Array<{ content?: Array<
 
 /** 先請視覺模型把照片裡的「衣服」用文字描述出來，之後生成只用文字，不再把照片本身丟給圖片模型——
  *  照片會把真人的身形、水彩般的布料質感一起帶進來（2026-10-05 實測：比例跑掉、畫面像水彩）。 */
-async function describeOutfit(apiKey: string, photos: File[]): Promise<string> {
-  const content: Array<Record<string, string>> = [{ type: "input_text", text: "Describe the outfit." }];
+async function describeOutfit(apiKey: string, photos: File[], head = false): Promise<string> {
+  const content: Array<Record<string, string>> = [{ type: "input_text", text: head ? "Describe the hair and head features." : "Describe the outfit." }];
   for (const photo of photos) {
     const bytes = new Uint8Array(await photo.arrayBuffer());
     let binary = "";
@@ -57,13 +59,13 @@ async function describeOutfit(apiKey: string, photos: File[]): Promise<string> {
   }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: DESCRIBE_MODEL, instructions: DESCRIBE_INSTRUCTIONS, reasoning: { effort: "low" }, input: [{ role: "user", content }] }),
+    body: JSON.stringify({ model: DESCRIBE_MODEL, instructions: head ? DESCRIBE_HEAD_INSTRUCTIONS : DESCRIBE_INSTRUCTIONS, reasoning: { effort: "low" }, input: [{ role: "user", content }] }),
     signal: AbortSignal.timeout(60_000),
   });
   const payload = await response.json().catch(() => ({})) as DescribePayload;
   if (!response.ok) throw new Error(`讀取照片裡的衣服失敗：${payload.error?.message || response.status}`);
   const text = (payload.output_text || (payload.output || []).flatMap((item) => item.content || []).map((part) => part.text || "").join(" ")).replace(/\s+/g, " ").trim();
-  if (!text) throw new Error("沒有從照片讀到衣服，請換一張更清楚的照片，或直接輸入文字描述。");
+  if (!text) throw new Error(head ? "沒有從照片讀到髮型與臉部特徵，請換一張更清楚的照片，或直接輸入文字描述。" : "沒有從照片讀到衣服，請換一張更清楚的照片，或直接輸入文字描述。");
   return text.slice(0, 700);
 }
 
@@ -95,7 +97,8 @@ export async function POST(request: Request) {
   try { form = await request.formData(); } catch { return Response.json({ error: "請求格式不正確。" }, { status: 400 }); }
   const description = String(form.get("description") || "").trim().slice(0, 600);
   const quality = QUALITY;
-  const refit = String(form.get("mode")) === "refit";
+  const isHead = String(form.get("kind")) === "head";   // 頭像生成：同一套流程與扣點，換頭像的提示詞與參考圖
+  const refit = !isHead && String(form.get("mode")) === "refit";
   // 預設用「六套現有服裝的參考圖」當風格與比例參考（細節與線條最精緻、人物最大）；只有修正比例時才用無頭身體底圖。
   const base: "template" | "sheet" = refit || String(form.get("base")) === "template" ? "template" : "sheet";
   const photos = form.getAll("images").filter((value): value is File => typeof value !== "string").slice(0, 2);
@@ -103,20 +106,21 @@ export async function POST(request: Request) {
     if (!/^image\/(png|jpeg|webp)$/.test(photo.type) || photo.size > 10 * 1024 * 1024) return Response.json({ error: "參考圖只接受 10MB 內的 PNG、JPG、WebP。" }, { status: 400 });
   }
   if (refit && !photos.length) return Response.json({ error: "需要附上要修正的圖片。" }, { status: 400 });
-  if (!description && !photos.length) return Response.json({ error: "請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。" }, { status: 400 });
+  if (!description && !photos.length) return Response.json({ error: isHead ? "請輸入髮型與臉部描述（關鍵字），或上傳一張參考照。" : "請輸入服裝描述（關鍵字），或上傳一張服裝參考圖。" }, { status: 400 });
 
   const model = process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT;
   let promptDescription = description, editPhotos = photos;
   const buildBody = (transparent: boolean) => {
   const body = new FormData();
   body.set("model", model);
-  body.set("prompt", refit ? buildRefitPrompt(promptDescription) : buildOutfitPrompt(promptDescription, editPhotos.length > 0, base));
+  body.set("prompt", isHead ? buildHeadPrompt(promptDescription, editPhotos.length > 0) : refit ? buildRefitPrompt(promptDescription) : buildOutfitPrompt(promptDescription, editPhotos.length > 0, base));
   body.set("size", imageSizeFor(model));
   body.set("quality", quality);
   if (transparent) body.set("background", "transparent");
   body.set("output_format", "png");
   body.set("n", String(VARIANTS));
-  if (base === "sheet") body.append("image[]", base64ToBlob(OUTFIT_REFERENCE_B64, "image/webp"), "outfit-reference.webp");
+  if (isHead) body.append("image[]", base64ToBlob(HEAD_REFERENCE_B64, "image/webp"), "head-reference.webp");
+  else if (base === "sheet") body.append("image[]", base64ToBlob(OUTFIT_REFERENCE_B64, "image/webp"), "outfit-reference.webp");
   else body.append("image[]", base64ToBlob(OUTFIT_TEMPLATE_B64, "image/png"), "outfit-template.png");
   editPhotos.forEach((photo, index) => body.append("image[]", photo, photo.name || `photo-${index + 1}`));
   return body;
@@ -146,7 +150,7 @@ export async function POST(request: Request) {
     async start(controller) {
       const heartbeat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, HEARTBEAT_MS);
       const send = (payload: unknown) => controller.enqueue(encoder.encode(JSON.stringify(payload)));
-      const base = { id: generationId, userId, model, quality, description, described: "", photoCount: photos.length, transparent: true, coinCost: coin.charged, coinExempt: coin.exempt, itemId, attempt };
+      const base = { id: generationId, userId, model, quality, description: isHead ? `[頭像] ${description}` : description, described: "", photoCount: photos.length, transparent: true, coinCost: coin.charged, coinExempt: coin.exempt, itemId, attempt };
       const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
       // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
       const fail = async (message: string) => {
@@ -162,7 +166,7 @@ export async function POST(request: Request) {
       try {
         let described = "";
         if (!refit && photos.length) {
-          described = await describeOutfit(apiKey, photos);
+          described = await describeOutfit(apiKey, photos, isHead);
           promptDescription = [described, description].filter(Boolean).join(" Additional notes: ");
           editPhotos = [];
         }
@@ -194,7 +198,7 @@ export async function POST(request: Request) {
           // 這次的結果掛到製作單上：新的一件就建立草稿，重新生成就換成這次的圖（之前的圖仍留在生成紀錄裡）
           const text = [description, described].filter(Boolean).join("；");
           if (itemId) await setGeneration(itemId, generationId, text);
-          else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId }); }
+          else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId, kind: isHead ? "head" : "outfit" }); }
         } catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
           recordId: base.id, recordWarning, coin, itemId: finalItemId, attempt, regenerationCost: 50,

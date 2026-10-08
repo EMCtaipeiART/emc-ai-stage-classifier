@@ -2,7 +2,8 @@
 
 import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./studio.css";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
+import HeadStudio from "./head-studio";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
@@ -137,6 +138,7 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 }
 
 export default function OutfitPage() {
+  const [mode, setMode] = useState<"outfit" | "head">("outfit");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -317,7 +319,7 @@ export default function OutfitPage() {
       const response = await fetch("/api/outfit/items", { headers: authHeaders() });
       const payload = await response.json() as { items?: Item[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取我的服裝失敗");
-      setLibrary(payload.items || []);
+      setLibrary((payload.items || []).filter((entry) => (entry as { kind?: string }).kind !== "head"));
     } catch (cause) { setLibraryNote(cause instanceof Error ? cause.message : "讀取我的服裝失敗"); }
   }
   useEffect(() => { void loadLibrary(); }, [token]);
@@ -426,6 +428,8 @@ export default function OutfitPage() {
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
+      <div className="mode-tabs" role="tablist" aria-label="製作類型"><button role="tab" aria-selected={mode === "outfit"} className={mode === "outfit" ? "on" : ""} onClick={() => setMode("outfit")}><Shirt size={15} />服裝</button><button role="tab" aria-selected={mode === "head"} className={mode === "head" ? "on" : ""} onClick={() => setMode("head")}><UserRound size={15} />頭像</button></div>
+      {mode === "head" ? <HeadStudio token={token} wallet={wallet} reloadWallet={() => void loadWallet()} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
@@ -514,6 +518,7 @@ export default function OutfitPage() {
           <div className="lib-actions"><button onClick={() => void openItem(item)}><Pencil size={13} />{item.status === "completed" ? "編輯" : "繼續製作"}</button>{item.status === "completed" && <button onClick={() => void toggleDefault(item)}><Star size={13} />{item.isDefault ? "取消預設" : "設為預設"}</button>}<button onClick={() => void downloadCover(item)}><Download size={13} />下載</button><button className="danger" onClick={() => void removeItem(item)}><Trash2 size={13} />刪除</button></div>
         </article>)}</div>}
       </section>
+      </>}
       <section className="history">
         <div className="section-head"><div className="preview-title"><span className="step">04</span><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>

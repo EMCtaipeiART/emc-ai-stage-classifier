@@ -39,7 +39,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.head !== undefined) update.head = cleanHead(body.head);
   if (body.views !== undefined) { const views = cleanViews(body.views); if (!views) return Response.json({ error: "三個角度的位置資料不正確" }, { status: 400 }); update.views = views; }
   if (body.cover !== undefined) { const cover = pngBytes(body.cover); if (!cover) return Response.json({ error: "預覽圖不正確或太大" }, { status: 400 }); update.cover = cover; }
-  if (body.game !== undefined || body.viewImages !== undefined) {
+  if (row.kind === "head" && body.headAssets !== undefined) {
+    // 頭像：三個角度裁好的頭（透明 PNG）與各角度尺寸；還不會發佈到遊戲（遊戲目前只讀 kind = outfit 的服裝）
+    const assets = (body.headAssets || {}) as { views?: unknown[]; viewImages?: unknown[] };
+    const images = Array.isArray(assets.viewImages) ? assets.viewImages.map((image) => pngBytes(image, 2_500_000)) : [];
+    const views = Array.isArray(assets.views) ? assets.views.map((value) => { const v = (value || {}) as Record<string, unknown>; return { w: clamp(v.w, 1, 3000), h: clamp(v.h, 1, 3000) }; }) : [];
+    if (images.length !== 3 || images.some((image) => !image) || views.length !== 3) return Response.json({ error: "頭像圖片或尺寸資料不正確" }, { status: 400 });
+    update.game = { kind: "head", views };
+    update.viewImages = images as Uint8Array[];
+  }
+  if (row.kind !== "head" && (body.game !== undefined || body.viewImages !== undefined)) {
     // 發佈給遊戲：三個角度裁好的身體圖（高 336、透明）＋各角度尺寸與頸頂位置＋頭的設定
     const game = (body.game || {}) as { views?: unknown[]; head?: unknown };
     const images = Array.isArray(body.viewImages) ? body.viewImages.map((image) => pngBytes(image, 2_500_000)) : [];
@@ -52,7 +61,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.isDefault !== undefined) update.isDefault = Boolean(body.isDefault);
   if (body.complete === true) {
     if (row.status !== "draft" && row.status !== "completed") return Response.json({ error: "這件服裝無法完成" }, { status: 400 });
-    if (!(update.name || row.name) || !(update.head || row.head_json) || !(update.views || row.views_json) || !(update.cover || row.cover_key)) return Response.json({ error: "要先套上大頭、取名字並產生預覽圖，才能完成" }, { status: 400 });
+    if (row.kind === "head") {
+      if (!(update.name || row.name) || !(update.game || row.game_json) || !(update.cover || row.cover_key)) return Response.json({ error: "要先取名字並儲存三個角度的頭像，才能完成" }, { status: 400 });
+    } else if (!(update.name || row.name) || !(update.head || row.head_json) || !(update.views || row.views_json) || !(update.cover || row.cover_key)) return Response.json({ error: "要先套上大頭、取名字並產生預覽圖，才能完成" }, { status: 400 });
     update.complete = true;
   }
   if (update.isDefault && row.status !== "completed" && !update.complete) return Response.json({ error: "完成服裝製作後才能設為預設" }, { status: 400 });
