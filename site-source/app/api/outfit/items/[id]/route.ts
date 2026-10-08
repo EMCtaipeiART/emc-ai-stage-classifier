@@ -41,13 +41,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.cover !== undefined) { const cover = pngBytes(body.cover); if (!cover) return Response.json({ error: "預覽圖不正確或太大" }, { status: 400 }); update.cover = cover; }
   if (row.kind !== "outfit" && body.headAssets !== undefined) {
     // 頭像：三個角度裁好的頭（透明 PNG）與各角度尺寸；還不會發佈到遊戲（遊戲目前只讀 kind = outfit 的服裝）
-    const assets = (body.headAssets || {}) as { views?: unknown[]; viewImages?: unknown[]; headIndex?: unknown; scale?: unknown; pads?: unknown; fits?: unknown };
+    const assets = (body.headAssets || {}) as { views?: unknown[]; viewImages?: unknown[]; headIndex?: unknown; scale?: unknown; pads?: unknown; fits?: unknown; behind?: unknown };
     const images = Array.isArray(assets.viewImages) ? assets.viewImages.map((image) => pngBytes(image, 2_500_000)) : [];
     const views = Array.isArray(assets.views) ? assets.views.map((value) => { const v = (value || {}) as Record<string, unknown>; return { w: clamp(v.w, 1, 3000), h: clamp(v.h, 1, 3000) }; }) : [];
     if (images.length !== 3 || images.some((image) => !image) || views.length !== 3) return Response.json({ error: "頭像圖片或尺寸資料不正確" }, { status: 400 });
     const pads = (Array.isArray(assets.pads) ? assets.pads : []).slice(0, 3).map((value) => (Array.isArray(value) ? value : []).concat([0, 0, 0, 0]).slice(0, 4).map((n) => clamp(n, 0, 600)));
     const fits = (Array.isArray(assets.fits) ? assets.fits : []).slice(0, 3).map((value) => { const f = (value || {}) as Record<string, unknown>; return { scale: clamp(f.scale, 0.3, 3, 1), dx: clamp(f.dx, -200, 200), dy: clamp(f.dy, -200, 200), sw: clamp(f.sw, 0.3, 3, 1), sh: clamp(f.sh, 0.3, 3, 1) }; });
-    update.game = { kind: row.kind, ...(pads.length ? { pads } : {}), ...(fits.length ? { fits } : {}), headIndex: Math.round(clamp(assets.headIndex, 0, 4)), scale: clamp(assets.scale, 1, 4, 2), views };
+    update.game = { kind: row.kind, ...(typeof assets.behind === "boolean" ? { behind: assets.behind } : {}), ...(pads.length ? { pads } : {}), ...(fits.length ? { fits } : {}), headIndex: Math.round(clamp(assets.headIndex, 0, 4)), scale: clamp(assets.scale, 1, 4, 2), views };
     update.viewImages = images as Uint8Array[];
   }
   if (row.kind === "outfit" && (body.game !== undefined || body.viewImages !== undefined)) {

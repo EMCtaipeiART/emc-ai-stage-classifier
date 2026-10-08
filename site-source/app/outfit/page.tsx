@@ -26,7 +26,7 @@ const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, re
  *  再依各自的寬度（含頭髮）左右排開、留間距——三個角度不會互相疊在一起。
  *  女生正面與側面頭髮在衣服後面、其餘頭在衣服上面（跟遊戲一樣）。
  *  畫面預覽用接近遊戲裡的大小（頭像本來就是低解析的遊戲素材，放太大才會顯得糊）；存檔用 336（跟發佈給遊戲的圖一樣）。 */
-function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220, custom: HTMLImageElement[] | null = null): HTMLCanvasElement {
+function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220, custom: HTMLImageElement[] | null = null, behindOverride: boolean | null = null): HTMLCanvasElement {
   const u = targetH / BODY_REF_HEIGHT, K = HEAD_K * fit.scale, gap = Math.round(targetH * 0.12), margin = Math.round(targetH * 0.06);
   const parts = body.views.map((view, index) => {
     const f = targetH / (view.y1 - view.y0), bw = (view.x1 - view.x0) * f, rect = HEADS[fit.headIndex][index], chin = chinOf(fit.headIndex, index as 0 | 1 | 2);
@@ -45,7 +45,8 @@ function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, tar
     const drawBody = () => ctx.drawImage(body.img, p.view.x0, p.view.y0, p.view.x1 - p.view.x0, p.view.y1 - p.view.y0, ox, oy, p.bw, targetH);
     // 有選用自訂頭像就用它（三張圖的大小與位置都是照原頭像格子對好的，直接畫在同一個位置）；沒有才用原本的頭像圖集
     const drawHead = () => custom ? ctx.drawImage(custom[p.index], ox + p.hx, oy + p.hy, p.hw, p.hh) : ctx.drawImage(headsImg, p.rect.x, p.rect.y, p.rect.w, p.rect.h, ox + p.hx, oy + p.hy, p.hw, p.hh);
-    if (HEAD_FEMALE[fit.headIndex] && p.index < 2) { drawHead(); drawBody(); } else { drawBody(); drawHead(); }
+    const behind = behindOverride ?? HEAD_FEMALE[fit.headIndex];   // 長髮：正面與側面頭在身體後面
+    if (behind && p.index < 2) { drawHead(); drawBody(); } else { drawBody(); drawHead(); }
     cursor += p.maxX - p.minX + gap;
   });
   return canvas;
@@ -175,8 +176,9 @@ export default function OutfitPage() {
   useEffect(() => { loadImageSrc("/wardrobe-heads.webp").then(setHeadsImg).catch(() => undefined); }, []);
   // 套大頭時用「元宇宙目前選用的頭像」（自訂頭像）；沒選就是原本的頭
   const [selectedHead, setSelectedHead] = useState<HTMLImageElement[] | null>(null);
+  const [selectedBehind, setSelectedBehind] = useState<boolean | null>(null);
   useEffect(() => {
-    setSelectedHead(null);
+    setSelectedHead(null); setSelectedBehind(null);
     if (!token) return;
     let cancelled = false;
     (async () => {
@@ -185,7 +187,8 @@ export default function OutfitPage() {
         const id = /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
-        if (!cancelled) setSelectedHead(imgs);
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean } }> };
+        if (!cancelled) { setSelectedHead(imgs); const behind = list.heads?.find((h) => h.id === id)?.game?.behind; setSelectedBehind(typeof behind === "boolean" ? behind : null); }
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
@@ -193,10 +196,10 @@ export default function OutfitPage() {
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
   useEffect(() => {
     if (phase !== "fit" || !fitBody || !headsImg || !fitCanvas.current) return;
-    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom), selectedHead), target = fitCanvas.current;
+    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom), selectedHead, selectedBehind), target = fitCanvas.current;
     target.width = composed.width; target.height = composed.height;
     target.getContext("2d")!.drawImage(composed, 0, 0);
-  }, [phase, fitBody, headsImg, fit, fitZoom, selectedHead]);
+  }, [phase, fitBody, headsImg, fit, fitZoom, selectedHead, selectedBehind]);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
@@ -392,7 +395,7 @@ export default function OutfitPage() {
     if (!fitName.trim()) { setError("請幫這件服裝取個名字。"); return; }
     setFitBusy(true); setError("");
     try {
-      const cover = composeFit(fitBody, headsImg, fit, 336, selectedHead).toDataURL("image/png");
+      const cover = composeFit(fitBody, headsImg, fit, 336, selectedHead, selectedBehind).toDataURL("image/png");
       const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(active && active.candidates.length > 1 ? { variant: active.pick } : {}), ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");

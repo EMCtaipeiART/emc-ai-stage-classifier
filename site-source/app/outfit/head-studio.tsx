@@ -8,11 +8,11 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircl
 import { analyzeHead } from "@/lib/head-check";
 import { analyzeAccessory, componentViews, valleyViews } from "@/lib/accessory-check";
 import { ACCESSORY_VIEWS } from "@/lib/accessory-spec";
-import { HEADS, HEAD_EYE_Y, HEAD_NAMES } from "@/lib/outfit-heads";
+import { HEADS, HEAD_EYE_Y, HEAD_FEMALE, HEAD_NAMES } from "@/lib/outfit-heads";
 import type { Check as QaCheck, ViewBox } from "@/lib/outfit-check";
 
 type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number };
-type HeadItem = { id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string; game?: { headIndex?: number; fits?: ViewFit[] } | null };
+type HeadItem = { id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string; game?: { headIndex?: number; fits?: ViewFit[]; behind?: boolean } | null };
 type Bg = "check" | "light" | "dark";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 type Kind = "head" | "cap" | "glasses";
@@ -126,6 +126,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
   const [fitTarget, setFitTarget] = useState<number>(3);
   const [showBase, setShowBase] = useState(true);
   const [headIndex, setHeadIndex] = useState(0);
+  const [hairBehind, setHairBehind] = useState<boolean | null>(null);   // 長髮：頭放在身體後面（正面與側面）；null＝照這個人原本的
   const [atlas, setAtlas] = useState<HTMLImageElement | null>(null);
   // 帽子、眼鏡對位用「你目前選用的頭像」（元宇宙造型裡選的自訂頭像；沒選就是原本的頭）
   const [headImgs, setHeadImgs] = useState<HTMLImageElement[] | null>(null);
@@ -222,6 +223,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     try {
       const blobUrl = await fetch(item.bodyUrl, { headers: auth() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("讀不到當初生成的圖片"))).then((blob) => URL.createObjectURL(blob));
       setCandidates([blobUrl]); setPick(0); setDescribed(""); setJob({ id: item.id, attempts: item.attempts }); setName(item.name || "");
+      setHairBehind(typeof item.game?.behind === "boolean" ? item.game.behind : null);
       await openFit(blobUrl, item.game?.fits, item.game?.headIndex);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "無法開啟編輯"); }
   }
@@ -282,11 +284,11 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
       const assets = buildAssets(kind, crops, headIndex, fits);
       const response = await fetch(`/api/outfit/items/${job.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json", ...auth() },
-        body: JSON.stringify({ name: name.trim(), cover: assets.cover, headAssets: { headIndex, scale: OUT_SCALE, fits, pads: assets.pads, views: assets.views, viewImages: assets.viewImages }, ...(candidates.length > 1 ? { variant: pick } : {}), complete: true }),
+        body: JSON.stringify({ name: name.trim(), cover: assets.cover, headAssets: { headIndex, scale: OUT_SCALE, fits, ...(kind === "head" ? { behind: hairBehind ?? HEAD_FEMALE[headIndex] } : {}), pads: assets.pads, views: assets.views, viewImages: assets.viewImages }, ...(candidates.length > 1 ? { variant: pick } : {}), complete: true }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
-      setNote(`「${name.trim()}」已存進我的${K.label}，並發佈到元宇宙的造型欄`); setCandidates([]); setJob(null); setName(""); setDescribed(""); setPhase("make"); setCrops([]);
+      setNote(`「${name.trim()}」已存進我的${K.label}，並發佈到元宇宙的造型欄`); setCandidates([]); setJob(null); setName(""); setDescribed(""); setPhase("make"); setCrops([]); setHairBehind(null);
       await loadLibrary();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
     finally { setSaving(false); }
@@ -329,6 +331,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
             <div className="fit-row"><span>大小</span><div className="nudge"><button aria-label="縮小" onClick={() => setFitValue("scale", Math.max(0.5, Math.round((fitValue("scale") - 0.01) * 100) / 100))}>－</button><input type="range" min={50} max={160} step={1} value={Math.round(fitValue("scale") * 100)} onChange={(e) => setFitValue("scale", Number(e.target.value) / 100)} aria-label="大小" /><button aria-label="放大" onClick={() => setFitValue("scale", Math.min(1.6, Math.round((fitValue("scale") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("scale") * 100)}%</output></div></div>
             <div className="fit-row"><span>寬度</span><div className="nudge"><button aria-label="寬度變小" onClick={() => setFitValue("sw", Math.max(0.3, Math.round((fitValue("sw") - 0.01) * 100) / 100))}>－</button><input type="range" min={40} max={200} step={1} value={Math.round(fitValue("sw") * 100)} onChange={(e) => setFitValue("sw", Number(e.target.value) / 100)} aria-label="寬度" /><button aria-label="寬度變大" onClick={() => setFitValue("sw", Math.min(2, Math.round((fitValue("sw") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("sw") * 100)}%</output></div></div>
             <div className="fit-row"><span>高度</span><div className="nudge"><button aria-label="高度變小" onClick={() => setFitValue("sh", Math.max(0.3, Math.round((fitValue("sh") - 0.01) * 100) / 100))}>－</button><input type="range" min={40} max={200} step={1} value={Math.round(fitValue("sh") * 100)} onChange={(e) => setFitValue("sh", Number(e.target.value) / 100)} aria-label="高度" /><button aria-label="高度變大" onClick={() => setFitValue("sh", Math.min(2, Math.round((fitValue("sh") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("sh") * 100)}%</output></div></div>
+            {kind === "head" && <label className="fit-default"><input type="checkbox" checked={hairBehind ?? HEAD_FEMALE[headIndex]} onChange={(e) => setHairBehind(e.target.checked)} /> 長髮：頭放在身體後面（頭髮才不會遮到身體）</label>}
             <label className="fit-default"><input type="checkbox" checked={showBase} onChange={(e) => setShowBase(e.target.checked)} /> {kind === "head" ? "疊上原頭像與臉部範圍" : "顯示我的頭與臉部範圍"}</label>
             <button className="fit-reset" onClick={() => setFits(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0, sw: 1, sh: 1 })))}>全部重設</button>
           </div>
