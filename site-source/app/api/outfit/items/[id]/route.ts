@@ -41,11 +41,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (body.cover !== undefined) { const cover = pngBytes(body.cover); if (!cover) return Response.json({ error: "預覽圖不正確或太大" }, { status: 400 }); update.cover = cover; }
   if (row.kind === "head" && body.headAssets !== undefined) {
     // 頭像：三個角度裁好的頭（透明 PNG）與各角度尺寸；還不會發佈到遊戲（遊戲目前只讀 kind = outfit 的服裝）
-    const assets = (body.headAssets || {}) as { views?: unknown[]; viewImages?: unknown[] };
+    const assets = (body.headAssets || {}) as { views?: unknown[]; viewImages?: unknown[]; headIndex?: unknown; scale?: unknown };
     const images = Array.isArray(assets.viewImages) ? assets.viewImages.map((image) => pngBytes(image, 2_500_000)) : [];
     const views = Array.isArray(assets.views) ? assets.views.map((value) => { const v = (value || {}) as Record<string, unknown>; return { w: clamp(v.w, 1, 3000), h: clamp(v.h, 1, 3000) }; }) : [];
     if (images.length !== 3 || images.some((image) => !image) || views.length !== 3) return Response.json({ error: "頭像圖片或尺寸資料不正確" }, { status: 400 });
-    update.game = { kind: "head", views };
+    update.game = { kind: "head", headIndex: Math.round(clamp(assets.headIndex, 0, 4)), scale: clamp(assets.scale, 1, 4, 2), views };
     update.viewImages = images as Uint8Array[];
   }
   if (row.kind !== "head" && (body.game !== undefined || body.viewImages !== undefined)) {

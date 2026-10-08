@@ -86,16 +86,18 @@ export async function itemCover(row: ItemRow): Promise<ReadableStream | null> {
   return row.cover_key ? getAsset(row.cover_key) : null;
 }
 
-/** Pixel Office 遊戲用：已完成、已發佈、有設計師名字的服裝（公開，不含帳號）。 */
-export async function listPublishedItems() {
+/** Pixel Office 遊戲用：已完成、已發佈、有設計師名字的服裝或頭像（公開，不含帳號）。服裝與頭像分開回傳：舊版遊戲只認 items（服裝），不會被頭像資料搞亂。 */
+async function listPublished(kind: "outfit" | "head") {
   await ensureItemsTable();
-  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' AND kind = 'outfit' ORDER BY updated_at DESC LIMIT 300").all<ItemRow>();
+  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' AND kind = ? ORDER BY updated_at DESC LIMIT 300").bind(kind).all<ItemRow>();
   return (results || []).map((row) => {
     let game = null;
     try { game = JSON.parse(row.game_json); } catch { /* 壞掉的就略過 */ }
     return { id: row.id, name: row.name, owner: row.owner_name, isDefault: Boolean(row.is_default), game, v: row.updated_at };
   }).filter((entry) => entry.game);
 }
+export const listPublishedItems = () => listPublished("outfit");
+export const listPublishedHeads = () => listPublished("head");
 
 export async function publishedViewImage(id: string, view: number): Promise<ReadableStream | null> {
   const row = await getItem(id);
