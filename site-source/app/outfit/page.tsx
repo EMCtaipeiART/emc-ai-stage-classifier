@@ -26,7 +26,7 @@ const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, re
  *  再依各自的寬度（含頭髮）左右排開、留間距——三個角度不會互相疊在一起。
  *  女生正面與側面頭髮在衣服後面、其餘頭在衣服上面（跟遊戲一樣）。
  *  畫面預覽用接近遊戲裡的大小（頭像本來就是低解析的遊戲素材，放太大才會顯得糊）；存檔用 336（跟發佈給遊戲的圖一樣）。 */
-function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220): HTMLCanvasElement {
+function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220, custom: HTMLImageElement[] | null = null): HTMLCanvasElement {
   const u = targetH / BODY_REF_HEIGHT, K = HEAD_K * fit.scale, gap = Math.round(targetH * 0.12), margin = Math.round(targetH * 0.06);
   const parts = body.views.map((view, index) => {
     const f = targetH / (view.y1 - view.y0), bw = (view.x1 - view.x0) * f, rect = HEADS[fit.headIndex][index], chin = chinOf(fit.headIndex, index as 0 | 1 | 2);
@@ -43,7 +43,8 @@ function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, tar
   parts.forEach((p) => {
     const ox = cursor - p.minX, oy = offY;
     const drawBody = () => ctx.drawImage(body.img, p.view.x0, p.view.y0, p.view.x1 - p.view.x0, p.view.y1 - p.view.y0, ox, oy, p.bw, targetH);
-    const drawHead = () => ctx.drawImage(headsImg, p.rect.x, p.rect.y, p.rect.w, p.rect.h, ox + p.hx, oy + p.hy, p.hw, p.hh);
+    // 有選用自訂頭像就用它（三張圖的大小與位置都是照原頭像格子對好的，直接畫在同一個位置）；沒有才用原本的頭像圖集
+    const drawHead = () => custom ? ctx.drawImage(custom[p.index], ox + p.hx, oy + p.hy, p.hw, p.hh) : ctx.drawImage(headsImg, p.rect.x, p.rect.y, p.rect.w, p.rect.h, ox + p.hx, oy + p.hy, p.hw, p.hh);
     if (HEAD_FEMALE[fit.headIndex] && p.index < 2) { drawHead(); drawBody(); } else { drawBody(); drawHead(); }
     cursor += p.maxX - p.minX + gap;
   });
@@ -172,13 +173,30 @@ export default function OutfitPage() {
   const [headsImg, setHeadsImg] = useState<HTMLImageElement | null>(null);
   const fitCanvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => { loadImageSrc("/wardrobe-heads.webp").then(setHeadsImg).catch(() => undefined); }, []);
+  // 套大頭時用「元宇宙目前選用的頭像」（自訂頭像）；沒選就是原本的頭
+  const [selectedHead, setSelectedHead] = useState<HTMLImageElement[] | null>(null);
+  useEffect(() => {
+    setSelectedHead(null);
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await fetch("/api/outfit/look", { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
+        const id = /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
+        if (!id) return;
+        const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png`)));
+        if (!cancelled) setSelectedHead(imgs);
+      } catch { /* 讀不到就用原本的頭 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
   useEffect(() => {
     if (phase !== "fit" || !fitBody || !headsImg || !fitCanvas.current) return;
-    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom)), target = fitCanvas.current;
+    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom), selectedHead), target = fitCanvas.current;
     target.width = composed.width; target.height = composed.height;
     target.getContext("2d")!.drawImage(composed, 0, 0);
-  }, [phase, fitBody, headsImg, fit, fitZoom]);
+  }, [phase, fitBody, headsImg, fit, fitZoom, selectedHead]);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
@@ -319,7 +337,7 @@ export default function OutfitPage() {
       const response = await fetch("/api/outfit/items", { headers: authHeaders() });
       const payload = await response.json() as { items?: Item[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取我的服裝失敗");
-      setLibrary((payload.items || []).filter((entry) => (entry as { kind?: string }).kind !== "head"));
+      setLibrary((payload.items || []).filter((entry) => { const kind = (entry as { kind?: string }).kind; return !kind || kind === "outfit"; }));
     } catch (cause) { setLibraryNote(cause instanceof Error ? cause.message : "讀取我的服裝失敗"); }
   }
   useEffect(() => { void loadLibrary(); }, [token]);
@@ -374,7 +392,7 @@ export default function OutfitPage() {
     if (!fitName.trim()) { setError("請幫這件服裝取個名字。"); return; }
     setFitBusy(true); setError("");
     try {
-      const cover = composeFit(fitBody, headsImg, fit, 336).toDataURL("image/png");
+      const cover = composeFit(fitBody, headsImg, fit, 336, selectedHead).toDataURL("image/png");
       const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(active && active.candidates.length > 1 ? { variant: active.pick } : {}), ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
@@ -467,7 +485,7 @@ export default function OutfitPage() {
             <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
             <div className="preview-bottom"><span>預設用接近遊戲裡的大小預覽；頭像是低解析的遊戲素材，放大檢查位置時會顯得比較糊，這是正常的。 <button className="zoom-toggle" onClick={() => setFitZoom(fitZoom === 1 ? 1.6 : 1)}>{fitZoom === 1 ? "放大檢查" : "回到實際大小"}</button></span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
             <div className="fit-controls">
-              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.designer ? `${HEAD_NAMES[fit.headIndex]}（本人）· 自己做的服裝只有自己能穿，所以固定用自己的頭` : "預覽用（沒有設計師身分，這件服裝不會進元宇宙）"}</div></div>
+              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.designer ? `${selectedHead ? "目前選用的自訂頭像" : `${HEAD_NAMES[fit.headIndex]}（本人，原本的頭）`} · 自己做的服裝只有自己能穿，所以固定用自己的頭` : "預覽用（沒有設計師身分，這件服裝不會進元宇宙）"}</div></div>
               <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ["正面", 0], ["側面", 1], ["背面", 2]] as Array<[string, 0 | 1 | 2 | 3]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
               <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="頭往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-80} max={80} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="頭的上下位置" /><button aria-label="頭往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><b>{fitValue("dy")}</b></div></div>
               <div className="fit-row"><span>左右</span><div className="nudge"><button aria-label="頭往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-60} max={60} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="頭的左右位置" /><button aria-label="頭往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><b>{fitValue("dx")}</b></div></div>
