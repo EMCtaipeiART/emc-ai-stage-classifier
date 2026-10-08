@@ -157,6 +157,6 @@ html:has(.studio[data-theme=dark]),html:has(.studio[data-theme=dark]) body{backg
 /* 內嵌在設計需求系統右側時：背景透明（用外層的底色），不要自己的淺綠底 */
 .studio.embed{background:transparent}
 html:has(.studio.embed),html:has(.studio.embed) body{background:transparent!important}
-.studio.embed main{max-width:none;padding-left:0;padding-right:0}
+.studio.embed main{max-width:none;padding-left:5%;padding-right:5%}
 html:has(.studio.embed){overflow:hidden}
 .studio.embed{min-height:0}
