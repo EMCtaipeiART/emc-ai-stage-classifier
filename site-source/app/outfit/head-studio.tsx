@@ -152,7 +152,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
         const chosen = state.head || "";
         const id = /^h:([0-9a-f-]{36})$/.exec(chosen)?.[1];
         if (!id) return;
-        const imgs = await Promise.all([0, 1, 2].map((view) => loadImage(`/api/public/outfits/${id}/${view}.png`)));
+        const imgs = await Promise.all([0, 1, 2].map((view) => loadImage(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
         if (cancelled) return;
         setHeadImgs(imgs);
         const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; name: string }> };

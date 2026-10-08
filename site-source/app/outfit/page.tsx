@@ -184,7 +184,7 @@ export default function OutfitPage() {
         const state = await fetch("/api/outfit/look", { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
         const id = /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
-        const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png`)));
+        const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
         if (!cancelled) setSelectedHead(imgs);
       } catch { /* 讀不到就用原本的頭 */ }
     })();
