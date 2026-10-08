@@ -14,7 +14,7 @@ export const ACCESSORY_SPEC = {
   edgeMargin: 0.02,
 } as const;
 
-const OUTLINE = `RENDERING QUALITY: crisp, clean, high-resolution cel-shaded game-art illustration with a bold, smooth, dark warm-black (#302828) outline of even thickness, flat cel-shading with one soft shadow tone, light from the upper left. No gradients, no noise, no glow, no watercolor texture, no cast shadow. Transparent background.`;
+const OUTLINE = `RENDERING QUALITY: crisp, clean, high-resolution cel-shaded game-art illustration with an EXTREMELY THICK, heavy, bold, smooth, dark warm-black (#302828) outline of even thickness - twice as thick as a normal bold cartoon outline (about 5% of the item's height for a hat, about 8% of the item's height for glasses, where the frame itself is chunky) -  flat cel-shading with one soft shadow tone, light from the upper left. No gradients, no noise, no glow, no watercolor texture, no cast shadow. Transparent background.`;
 
 const CAP_RULES = `The FIRST attached image is a STYLE AND PROPORTION REFERENCE: a sheet of two existing game baseball caps (one black, one blue), each shown as three views (front, side facing right with the brim pointing RIGHT, back) on a light gray background. Draw ONE NEW hat in exactly the same art style, with the same construction and proportions, as those caps (it may be a different kind of hat, for example a beanie, bucket hat or beret, but it must be drawn in this same chunky cartoon style and sized to sit on the same chibi head).
 
