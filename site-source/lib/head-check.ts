@@ -1,6 +1,7 @@
 // 頭像生成完成後在瀏覽器裡自動量一次：三個角度有沒有分開、高度與底線一不一致、寬高比、有沒有貼到邊。
 // 規格數值同 head-spec.ts（HEAD_SPEC）。純函式，只吃像素陣列。
 import { makeOpaqueTest, splitViews, type Check, type Pixels, type ViewBox } from "./outfit-check";
+import { componentViews, valleyViews } from "./accessory-check";
 import { HEAD_SPEC as SPEC } from "./head-spec";
 
 const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
@@ -8,7 +9,8 @@ const within = (value: number, range: readonly [number, number]) => value >= ran
 
 export function analyzeHead(p: Pixels): { views: ViewBox[]; checks: Check[]; ok: boolean } {
   const opaque = makeOpaqueTest(p);
-  const views = splitViews(p, opaque);
+  let views = splitViews(p, opaque);
+  if (views.length !== 3) { const parts = componentViews(p, 3); if (parts.length === 3) views = parts; else { const cut = valleyViews(p, 3); if (cut.length === 3) views = cut; } }
   const checks: Check[] = [];
   const add = (id: string, label: string, ok: boolean, detail: string) => checks.push({ id, label, ok, detail });
   add("views", "三個角度分開", views.length === 3, views.length === 3 ? "找到 3 個角度" : `只找到 ${views.length} 個角度（應該是正面、側面、背面三個，彼此要有空白）`);

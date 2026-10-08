@@ -6,7 +6,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircle, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import { analyzeHead } from "@/lib/head-check";
-import { analyzeAccessory } from "@/lib/accessory-check";
+import { analyzeAccessory, componentViews, valleyViews } from "@/lib/accessory-check";
 import { ACCESSORY_VIEWS } from "@/lib/accessory-spec";
 import { HEADS, HEAD_EYE_Y, HEAD_NAMES } from "@/lib/outfit-heads";
 import type { Check as QaCheck, ViewBox } from "@/lib/outfit-check";
@@ -183,6 +183,8 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!; ctx.drawImage(img, 0, 0);
     const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
     let views = (kind === "head" ? analyzeHead(data) : analyzeAccessory(kind, data)).views;
+    if (views.length !== viewCount) views = componentViews(data, viewCount);
+    if (views.length !== viewCount) views = valleyViews(data, viewCount);
     if (views.length !== viewCount) views = equalSplit(data, viewCount);
     if (views.length !== viewCount) { setError("找不到完整的各個角度，請重新生成。"); return; }
     setCrops(views.map((v) => cropView(img, v)));
