@@ -59,7 +59,8 @@ function cropView(source: HTMLImageElement, v: ViewBox) {
 type Rect = { x: number; y: number; w: number; h: number; s?: [number, number, number, number] };
 /** 輸出圖在原頭像格子外多留的邊（左、上、右、下，原格子像素）：帽子會超出頭頂、帽簷會伸出臉前面，要有空間放。頭像本身不需要。 */
 function padFor(kind: Kind, base: Rect): [number, number, number, number] {
-  if (kind === "head") return [0, 0, 0, 0];
+  // 頭像也要留邊：拉寬、拉高之後頭髮會超出原本的格子，沒有留邊就被切平（遊戲裡看起來頭髮被削掉）
+  if (kind === "head") return [Math.round(base.w * 0.25), Math.round(base.h * 0.3), Math.round(base.w * 0.25), Math.round(base.h * 0.1)];
   // 留邊要夠大：可以把帽子、眼鏡拉寬拉高到 200%，不能被格子切掉
   if (kind === "cap") return [Math.round(base.w * 0.6), Math.round(base.h * 0.9), Math.round(base.w * 0.8), Math.round(base.h * 0.25)];
   return [Math.round(base.w * 0.5), Math.round(base.h * 0.4), Math.round(base.w * 0.6), Math.round(base.h * 0.4)];
