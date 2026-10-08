@@ -154,3 +154,7 @@ html:has(.studio[data-theme=dark]),html:has(.studio[data-theme=dark]) body{backg
 
 .studio .mode-tabs{display:inline-flex;gap:4px;padding:4px;margin:0 0 20px;background:var(--soft);border:1px solid var(--line);border-radius:12px}.studio .mode-tabs button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px}.studio .mode-tabs button.on{background:var(--surface);color:var(--green);box-shadow:0 1px 3px rgba(0,0,0,.12)}
 .studio .nudge.wide{grid-template-columns:34px 34px minmax(0,1fr) 34px 34px 44px}
+/* 內嵌在設計需求系統右側時：背景透明（用外層的底色），不要自己的淺綠底 */
+.studio.embed{background:transparent}
+html:has(.studio.embed),html:has(.studio.embed) body{background:transparent!important}
+.studio.embed main{max-width:none;padding-left:0;padding-right:0}
