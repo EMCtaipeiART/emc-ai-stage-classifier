@@ -158,3 +158,5 @@ html:has(.studio[data-theme=dark]),html:has(.studio[data-theme=dark]) body{backg
 .studio.embed{background:transparent}
 html:has(.studio.embed),html:has(.studio.embed) body{background:transparent!important}
 .studio.embed main{max-width:none;padding-left:0;padding-right:0}
+html:has(.studio.embed){overflow:hidden}
+.studio.embed{min-height:0}

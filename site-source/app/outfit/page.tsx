@@ -219,6 +219,15 @@ export default function OutfitPage() {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+  // 內嵌時把內容高度告訴外層：外層把 iframe 撐到這麼高，整頁由外層一起捲動（不然只有 iframe 裡面能捲，左右空白處滑不動）
+  useEffect(() => {
+    if (window.parent === window) return;
+    const send = () => { try { window.parent.postMessage({ type: "emcOutfitHeight", height: Math.ceil(document.body.getBoundingClientRect().height) }, "*"); } catch { /* 外層不收就算了 */ } };
+    const observer = new ResizeObserver(send);
+    observer.observe(document.body); send();
+    const timer = window.setInterval(send, 1500);
+    return () => { observer.disconnect(); window.clearInterval(timer); };
+  }, []);
   // 登入：設計需求系統把 token 放在網址的 #t=…（# 後面的內容不會送到伺服器），這裡收下來存在這個分頁、立刻從網址拿掉。
   useEffect(() => {
     let value = "";
