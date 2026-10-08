@@ -126,6 +126,9 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
   const [showBase, setShowBase] = useState(true);
   const [headIndex, setHeadIndex] = useState(0);
   const [atlas, setAtlas] = useState<HTMLImageElement | null>(null);
+  // 帽子、眼鏡對位用「你目前選用的頭像」（元宇宙造型裡選的自訂頭像；沒選就是原本的頭）
+  const [headImgs, setHeadImgs] = useState<HTMLImageElement[] | null>(null);
+  const [headLabel, setHeadLabel] = useState("原本的頭");
   const fitCanvas = useRef<HTMLCanvasElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
@@ -139,6 +142,25 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
 
   useEffect(() => { loadImage("/wardrobe-heads.webp").then(setAtlas).catch(() => undefined); }, []);
   useEffect(() => { if (ownIndex >= 0) setHeadIndex(ownIndex); }, [ownIndex]);
+  useEffect(() => {
+    setHeadImgs(null); setHeadLabel("原本的頭");
+    if (kind === "head" || !wallet?.name) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const state = await fetch("https://machi-design-api.machi-chen.workers.dev/api", { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify({ action: "pixelOfficeState", since: 0 }), cache: "no-store" }).then((r) => r.json()) as { people?: Array<{ name: string; look?: { head?: string } }> };
+        const chosen = state.people?.find((p) => p.name === wallet.name)?.look?.head || "";
+        const id = /^h:([0-9a-f-]{36})$/.exec(chosen)?.[1];
+        if (!id) return;
+        const imgs = await Promise.all([0, 1, 2].map((view) => loadImage(`/api/public/outfits/${id}/${view}.png`)));
+        if (cancelled) return;
+        setHeadImgs(imgs);
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; name: string }> };
+        if (!cancelled) setHeadLabel(`目前選用的頭像「${list.heads?.find((h) => h.id === id)?.name || "自訂頭像"}」`);
+      } catch { /* 讀不到就用原本的頭 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [kind, wallet?.name]);
   const FIT_VIEW = 1.6;   // 對位畫面的放大倍率（原頭像格子 × 1.6）
   useEffect(() => {
     if (phase !== "fit" || !crops.length || !atlas || !fitCanvas.current) return;
@@ -152,7 +174,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
       const pad = pads[view], oy = canvas.height - 4 - heights[view], hx = x + pad[0] * F, hy = oy + pad[1] * F;
       const p = placeItem(kind, view, headIndex, crops[view], fits[view], F);
       // 帽子與眼鏡：原頭像畫在下面（讓你看到戴上去的樣子），頭像：半透明疊在上面對位
-      if (showBase && kind !== "head") { ctx.drawImage(atlas, base.x, base.y, base.w, base.h, hx, hy, base.w * F, base.h * F); }
+      if (showBase && kind !== "head") { if (headImgs) ctx.drawImage(headImgs[view], hx, hy, base.w * F, base.h * F); else ctx.drawImage(atlas, base.x, base.y, base.w, base.h, hx, hy, base.w * F, base.h * F); }
       ctx.drawImage(crops[view], hx + p.x, hy + p.y, p.w, p.h);
       if (showBase) {
         ctx.save();
@@ -163,7 +185,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
       }
       x += widths[view] + gap;
     });
-  }, [phase, crops, atlas, fits, headIndex, showBase]);
+  }, [phase, crops, atlas, fits, headIndex, showBase, headImgs]);
   const setFitValue = (key: keyof ViewFit, value: number) => setFits((current) => current.map((f, view) => (fitTarget === 3 || fitTarget === view) ? { ...f, [key]: value } : f));
   const fitValue = (key: keyof ViewFit) => fits[fitTarget === 3 ? 0 : fitTarget][key];
   /** 依欄位空白切不出預期的角度數時（例如角度之間貼在一起），退回「平均切成幾欄、各自貼著輪廓裁」，還是可以進對位自己調。 */
@@ -297,7 +319,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
         <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>{image ? `你的新${K.label}` : K.empty}</h2></div><span className="badge">{image ? "生成結果" : "等待生成"}</span></div>
         {phase === "fit" && crops.length ? <div className="fit">
           <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
-          <div className="preview-bottom"><span>{kind === "head" ? "紅色虛線是原本那顆頭的臉部範圍，半透明的是原頭像：把新頭像的臉對到上面，下巴與耳朵的位置對齊，眼鏡、帽子、耳機才會戴對位置。" : kind === "cap" ? "這是你的頭戴上帽子的樣子（紅色虛線是臉部範圍）：調整帽子的位置與大小，帽簷要壓在額頭上、側面帽簷朝前。" : "這是你的頭戴上眼鏡的樣子（紅色虛線是臉部範圍）：調整眼鏡的位置與大小，鏡框要對在眼睛上、側面鏡腳要搭到耳朵。"}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={x}>{x === "check" ? "透明" : x === "light" ? "淺" : "深"}</button>)}</div></div>
+          <div className="preview-bottom"><span>{kind === "head" ? "紅色虛線是原本那顆頭的臉部範圍，半透明的是原頭像：把新頭像的臉對到上面，下巴與耳朵的位置對齊，眼鏡、帽子、耳機才會戴對位置。" : kind === "cap" ? `這是${headLabel}戴上帽子的樣子（紅色虛線是臉部範圍）：調整帽子的位置與大小，帽簷要壓在額頭上、側面帽簷朝前。` : `這是${headLabel}戴上眼鏡的樣子（紅色虛線是臉部範圍）：調整眼鏡的位置與大小，鏡框要對在眼睛上、側面鏡腳要搭到耳朵。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={x}>{x === "check" ? "透明" : x === "light" ? "淺" : "深"}</button>)}</div></div>
           <div className="fit-controls">
             <div className="fit-row"><span>對位的頭</span><div className="fit-own">{lockedHead ? `${HEAD_NAMES[headIndex]}（本人）· 自己做的${K.label}只有自己能用，所以固定對到自己的頭` : <select value={headIndex} onChange={(e) => setHeadIndex(Number(e.target.value))}>{HEAD_NAMES.map((n, k) => <option key={n} value={k}>{n}</option>)}</select>}</div></div>
             <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ...viewIndexes.map((view) => [VIEW_NAMES[view], view])] as Array<[string, number]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
