@@ -31,7 +31,7 @@ export function itemPublic(row: ItemRow) {
     createdAt: row.created_at, updatedAt: row.updated_at, completedAt: row.completed_at,
     game: parse(row.game_json), published: Boolean(row.game_json),
     coverUrl: row.cover_key ? `/api/outfit/items/${row.id}/cover` : "",
-    variant: row.variant || 0, kind: row.kind === "head" ? "head" : "outfit",
+    variant: row.variant || 0, kind: ["head", "cap", "glasses"].includes(row.kind) ? row.kind : "outfit",
     bodyUrl: row.generation_id ? `/api/outfit/history/${row.generation_id}/image?v=${row.variant || 0}` : "",
   };
 }
@@ -47,9 +47,9 @@ export async function getItem(id: string): Promise<ItemRow | null> {
   return await env.DB!.prepare("SELECT * FROM outfit_items WHERE id = ?").bind(id).first<ItemRow>();
 }
 
-export async function createDraft(input: { id: string; account: string; name: string; description: string; generationId: string; kind?: "outfit" | "head" }) {
+export async function createDraft(input: { id: string; account: string; name: string; description: string; generationId: string; kind?: "outfit" | "head" | "cap" | "glasses" }) {
   await ensureItemsTable();
-  await env.DB!.prepare("INSERT INTO outfit_items (id, owner_account, owner_name, description, generation_id, attempts, kind) VALUES (?, ?, ?, ?, ?, 1, ?)").bind(input.id, input.account, input.name, input.description.slice(0, 1000), input.generationId, input.kind === "head" ? "head" : "outfit").run();
+  await env.DB!.prepare("INSERT INTO outfit_items (id, owner_account, owner_name, description, generation_id, attempts, kind) VALUES (?, ?, ?, ?, ?, 1, ?)").bind(input.id, input.account, input.name, input.description.slice(0, 1000), input.generationId, ["head", "cap", "glasses"].includes(input.kind || "") ? input.kind : "outfit").run();
 }
 
 export async function setGeneration(id: string, generationId: string, description: string) {
@@ -87,7 +87,7 @@ export async function itemCover(row: ItemRow): Promise<ReadableStream | null> {
 }
 
 /** Pixel Office 遊戲用：已完成、已發佈、有設計師名字的服裝或頭像（公開，不含帳號）。服裝與頭像分開回傳：舊版遊戲只認 items（服裝），不會被頭像資料搞亂。 */
-async function listPublished(kind: "outfit" | "head") {
+async function listPublished(kind: "outfit" | "head" | "cap" | "glasses") {
   await ensureItemsTable();
   const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status = 'completed' AND game_json != '' AND owner_name != '' AND kind = ? ORDER BY updated_at DESC LIMIT 300").bind(kind).all<ItemRow>();
   return (results || []).map((row) => {
@@ -98,6 +98,8 @@ async function listPublished(kind: "outfit" | "head") {
 }
 export const listPublishedItems = () => listPublished("outfit");
 export const listPublishedHeads = () => listPublished("head");
+export const listPublishedCaps = () => listPublished("cap");
+export const listPublishedGlasses = () => listPublished("glasses");
 
 export async function publishedViewImage(id: string, view: number): Promise<ReadableStream | null> {
   const row = await getItem(id);

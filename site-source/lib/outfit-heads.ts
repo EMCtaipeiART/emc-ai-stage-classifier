@@ -18,3 +18,6 @@ export function chinOf(headIndex: number, view: 0 | 1 | 2) {
   const sk = rect.s || front.s || [0, rect.w, 0, rect.h * 0.62];
   return { x: (sk[0] + sk[1]) / 2, y: sk[3] };
 }
+
+/** 各人眼睛的高度（頭像格子內的像素；[正面, 側面]）：眼鏡預設對位用，數值是遊戲裡眼鏡對位量的。 */
+export const HEAD_EYE_Y: Array<[number, number]> = [[54.6, 53.7], [56.4, 53.0], [50.7, 58.4], [59.3, 53.3], [45.5, 48.4]];

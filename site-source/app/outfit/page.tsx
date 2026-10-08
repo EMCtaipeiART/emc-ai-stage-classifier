@@ -1,8 +1,8 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import "./studio.css";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Crown, Glasses, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import HeadStudio from "./head-studio";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
@@ -138,7 +138,7 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 }
 
 export default function OutfitPage() {
-  const [mode, setMode] = useState<"outfit" | "head">("outfit");
+  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses">("outfit");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -428,8 +428,8 @@ export default function OutfitPage() {
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
-      <div className="mode-tabs" role="tablist" aria-label="製作類型"><button role="tab" aria-selected={mode === "outfit"} className={mode === "outfit" ? "on" : ""} onClick={() => setMode("outfit")}><Shirt size={15} />服裝</button><button role="tab" aria-selected={mode === "head"} className={mode === "head" ? "on" : ""} onClick={() => setMode("head")}><UserRound size={15} />頭像</button></div>
-      {mode === "head" ? <HeadStudio token={token} wallet={wallet} reloadWallet={() => void loadWallet()} /> : <>
+      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ["cap", "帽子", <Crown key="c" size={15} />], ["glasses", "眼鏡", <Glasses key="g" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
+      {mode !== "outfit" ? <HeadStudio key={mode} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
