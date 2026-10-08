@@ -148,8 +148,8 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     let cancelled = false;
     (async () => {
       try {
-        const state = await fetch("https://machi-design-api.machi-chen.workers.dev/api", { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, body: JSON.stringify({ action: "pixelOfficeState", since: 0 }), cache: "no-store" }).then((r) => r.json()) as { people?: Array<{ name: string; look?: { head?: string } }> };
-        const chosen = state.people?.find((p) => p.name === wallet.name)?.look?.head || "";
+        const state = await fetch("/api/outfit/look", { headers: auth(), cache: "no-store" }).then((r) => r.json()) as { head?: string };
+        const chosen = state.head || "";
         const id = /^h:([0-9a-f-]{36})$/.exec(chosen)?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImage(`/api/public/outfits/${id}/${view}.png`)));
@@ -160,7 +160,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
-  }, [kind, wallet?.name]);
+  }, [kind, wallet?.name, token]);
   const FIT_VIEW = 1.6;   // 對位畫面的放大倍率（原頭像格子 × 1.6）
   useEffect(() => {
     if (phase !== "fit" || !crops.length || !atlas || !fitCanvas.current) return;
@@ -319,7 +319,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
         <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>{image ? `你的新${K.label}` : K.empty}</h2></div><span className="badge">{image ? "生成結果" : "等待生成"}</span></div>
         {phase === "fit" && crops.length ? <div className="fit">
           <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
-          <div className="preview-bottom"><span>{kind === "head" ? "紅色虛線是原本那顆頭的臉部範圍，半透明的是原頭像：把新頭像的臉對到上面，下巴與耳朵的位置對齊，眼鏡、帽子、耳機才會戴對位置。" : kind === "cap" ? `這是${headLabel}戴上帽子的樣子（紅色虛線是臉部範圍）：調整帽子的位置與大小，帽簷要壓在額頭上、側面帽簷朝前。` : `這是${headLabel}戴上眼鏡的樣子（紅色虛線是臉部範圍）：調整眼鏡的位置與大小，鏡框要對在眼睛上、側面鏡腳要搭到耳朵。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={x}>{x === "check" ? "透明" : x === "light" ? "淺" : "深"}</button>)}</div></div>
+          <div className="preview-bottom"><span>{kind === "head" ? "紅色虛線是原本那顆頭的臉部範圍，半透明的是原頭像：把新頭像的臉對到上面，下巴與耳朵的位置對齊，眼鏡、帽子、耳機才會戴對位置。" : kind === "cap" ? `這是${headLabel}戴上帽子的樣子（紅色虛線是臉部範圍）：調整帽子的位置與大小，帽簷要壓在額頭上、側面帽簷朝前。` : `這是${headLabel}戴上眼鏡的樣子（紅色虛線是臉部範圍）：調整眼鏡的位置與大小，鏡框要對在眼睛上、側面鏡腳要搭到耳朵。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
           <div className="fit-controls">
             <div className="fit-row"><span>對位的頭</span><div className="fit-own">{lockedHead ? `${HEAD_NAMES[headIndex]}（本人）· 自己做的${K.label}只有自己能用，所以固定對到自己的頭` : <select value={headIndex} onChange={(e) => setHeadIndex(Number(e.target.value))}>{HEAD_NAMES.map((n, k) => <option key={n} value={k}>{n}</option>)}</select>}</div></div>
             <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ...viewIndexes.map((view) => [VIEW_NAMES[view], view])] as Array<[string, number]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
@@ -342,7 +342,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
           {loading && <div className="loading"><LoaderCircle className="spin" size={32} /><strong>正在製作你的新{K.label}</strong><span>通常需要 20 秒到幾分鐘，請保持頁面開啟。</span></div>}
         </div>
         {candidates.length > 1 && <div className="cand-row" role="radiogroup" aria-label="三組供選">{candidates.map((src, k) => <button key={k} type="button" role="radio" aria-checked={pick === k} className={pick === k ? "on" : ""} disabled={loading} onClick={() => setPick(k)}><span className="cand-thumb"><img src={src} alt={`第 ${k + 1} 組`} /></span><span>第 {k + 1} 組</span></button>)}</div>}
-        <div className="preview-bottom"><span>{image ? "透明 PNG · 請檢查各角度是不是同一個" : `生成時會依固定規範畫出${K.label}。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={x}>{x === "check" ? "透明" : x === "light" ? "淺" : "深"}</button>)}</div></div>
+        <div className="preview-bottom"><span>{image ? "透明 PNG · 請檢查各角度是不是同一個" : `生成時會依固定規範畫出${K.label}。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
         {image && <div className="download-row"><button disabled={loading} onClick={() => { const a = document.createElement("a"); a.href = image; a.download = `${kind}-sheet.png`; a.click(); }}><Download size={17} />下載完整 PNG</button></div>}
         {image && job && <div className="job-card"><div><b>這個{K.label} · 第 {job.attempts} 次生成</b><span>在上面三組裡點選一組，滿意就進入下一步對位；都不滿意可以再生成三組（仍是同一個，每次再扣 {fmtCoin(regenCost)} 點）。</span></div>
           <div className="job-actions"><button className="primary" disabled={loading} onClick={() => void startFit()}>下一步：對位 <ArrowRight size={15} /></button><button disabled={loading || !canRegenerate} onClick={() => void generate(job.id)}><Sparkles size={14} />再生成三組（再扣 {fmtCoin(regenCost)} 點）</button></div></div>}
