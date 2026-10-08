@@ -153,3 +153,4 @@
 html:has(.studio[data-theme=dark]),html:has(.studio[data-theme=dark]) body{background:#151815}
 
 .studio .mode-tabs{display:inline-flex;gap:4px;padding:4px;margin:0 0 20px;background:var(--soft);border:1px solid var(--line);border-radius:12px}.studio .mode-tabs button{display:inline-flex;align-items:center;gap:6px;border:0;background:transparent;color:var(--muted);padding:9px 18px;border-radius:9px;font-weight:700;font-size:13px}.studio .mode-tabs button.on{background:var(--surface);color:var(--green);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.studio .nudge.wide{grid-template-columns:34px 34px minmax(0,1fr) 34px 34px 44px}

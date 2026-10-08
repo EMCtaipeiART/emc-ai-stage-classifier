@@ -4,7 +4,7 @@
 // 參考圖是遊戲現有五位人物的頭像（lib/head-reference.ts），規格見 lib/head-spec.ts 與 EMC-ART-Pixel-Office/docs/HEAD_SPEC.md。
 // 完成的頭像存在「我的頭像」；目前還不會進元宇宙造型欄（遊戲要先支援自訂頭像）。
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircle, Sparkles, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircle, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import { analyzeHead } from "@/lib/head-check";
 import { analyzeAccessory } from "@/lib/accessory-check";
 import { ACCESSORY_VIEWS } from "@/lib/accessory-spec";
@@ -12,7 +12,7 @@ import { HEADS, HEAD_EYE_Y, HEAD_NAMES } from "@/lib/outfit-heads";
 import type { Check as QaCheck, ViewBox } from "@/lib/outfit-check";
 
 type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number };
-type HeadItem = { id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string };
+type HeadItem = { id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string; game?: { headIndex?: number; fits?: ViewFit[] } | null };
 type Bg = "check" | "light" | "dark";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 type Kind = "head" | "cap" | "glasses";
@@ -166,11 +166,39 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
   }, [phase, crops, atlas, fits, headIndex, showBase]);
   const setFitValue = (key: keyof ViewFit, value: number) => setFits((current) => current.map((f, view) => (fitTarget === 3 || fitTarget === view) ? { ...f, [key]: value } : f));
   const fitValue = (key: keyof ViewFit) => fits[fitTarget === 3 ? 0 : fitTarget][key];
-  async function startFit() {
-    if (!image || !qa || qa.views.length !== viewCount) return;
-    const img = await loadImage(image);
-    setCrops(qa.views.map((v) => cropView(img, v)));
-    setFits(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 }))); setFitTarget(3); setPhase("fit");
+  /** 依欄位空白切不出預期的角度數時（例如角度之間貼在一起），退回「平均切成幾欄、各自貼著輪廓裁」，還是可以進對位自己調。 */
+  function equalSplit(data: ImageData, count: number): ViewBox[] {
+    const out: ViewBox[] = [], colW = Math.floor(data.width / count);
+    for (let k = 0; k < count; k += 1) {
+      let x0 = data.width, x1 = 0, y0 = data.height, y1 = 0;
+      for (let y = 0; y < data.height; y += 1) for (let x = k * colW; x < (k + 1) * colW; x += 1) if (data.data[(y * data.width + x) * 4 + 3] > 32) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + 1); y0 = Math.min(y0, y); y1 = Math.max(y1, y + 1); }
+      if (x1 > x0 && y1 > y0) out.push({ x0, y0, x1, y1 });
+    }
+    return out;
+  }
+  /** 進入對位：自己重新量一次這張圖（不依賴畫面上的檢查結果），量不準就平均切；initial 是之前存的對位（編輯舊的時用）。 */
+  async function openFit(src: string, initial?: ViewFit[] | null, forHead?: number) {
+    const img = await loadImage(src);
+    const canvas = document.createElement("canvas"); canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!; ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let views = (kind === "head" ? analyzeHead(data) : analyzeAccessory(kind, data)).views;
+    if (views.length !== viewCount) views = equalSplit(data, viewCount);
+    if (views.length !== viewCount) { setError("找不到完整的各個角度，請重新生成。"); return; }
+    setCrops(views.map((v) => cropView(img, v)));
+    setFits(initial && initial.length === viewCount ? initial : viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 })));
+    if (forHead !== undefined && !lockedHead) setHeadIndex(forHead);
+    setFitTarget(3); setPhase("fit");
+  }
+  async function startFit() { if (image) await openFit(image); }
+  /** 編輯之前完成的：用當初挑的那一組原圖重新進對位，帶回上次的位置與名稱；存檔時蓋掉原本的。 */
+  async function editItem(item: HeadItem) {
+    setError(""); setNote("");
+    try {
+      const blobUrl = await fetch(item.bodyUrl, { headers: auth() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("讀不到當初生成的圖片"))).then((blob) => URL.createObjectURL(blob));
+      setCandidates([blobUrl]); setPick(0); setDescribed(""); setJob({ id: item.id, attempts: item.attempts }); setName(item.name || "");
+      await openFit(blobUrl, item.game?.fits, item.game?.headIndex);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "無法開啟編輯"); }
   }
   useEffect(() => { if (!loading) return; const t = window.setInterval(() => setElapsed((n) => n + 1), 1000); return () => window.clearInterval(t); }, [loading]);
   async function loadLibrary() {
@@ -223,13 +251,13 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     finally { setLoading(false); reloadWallet(); }
   }
   async function save() {
-    if (!job || !image || !qa || qa.views.length !== viewCount || !crops.length || !name.trim()) return;
+    if (!job || !image || !crops.length || !name.trim()) return;
     setSaving(true); setError("");
     try {
       const assets = buildAssets(kind, crops, headIndex, fits);
       const response = await fetch(`/api/outfit/items/${job.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json", ...auth() },
-        body: JSON.stringify({ name: name.trim(), cover: assets.cover, headAssets: { headIndex, scale: OUT_SCALE, pads: assets.pads, views: assets.views, viewImages: assets.viewImages }, variant: pick, complete: true }),
+        body: JSON.stringify({ name: name.trim(), cover: assets.cover, headAssets: { headIndex, scale: OUT_SCALE, fits, pads: assets.pads, views: assets.views, viewImages: assets.viewImages }, ...(candidates.length > 1 ? { variant: pick } : {}), complete: true }),
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
@@ -271,8 +299,8 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
           <div className="fit-controls">
             <div className="fit-row"><span>對位的頭</span><div className="fit-own">{lockedHead ? `${HEAD_NAMES[headIndex]}（本人）· 自己做的${K.label}只有自己能用，所以固定對到自己的頭` : <select value={headIndex} onChange={(e) => setHeadIndex(Number(e.target.value))}>{HEAD_NAMES.map((n, k) => <option key={n} value={k}>{n}</option>)}</select>}</div></div>
             <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ...viewIndexes.map((view) => [VIEW_NAMES[view], view])] as Array<[string, number]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
-            <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-60} max={60} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="上下" /><button aria-label="往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><output>{fitValue("dy")}</output></div></div>
-            <div className="fit-row"><span>左右</span><div className="nudge"><button aria-label="往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-60} max={60} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="左右" /><button aria-label="往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><output>{fitValue("dx")}</output></div></div>
+            <div className="fit-row"><span>上下</span><div className="nudge wide"><button aria-label="往上 5" onClick={() => setFitValue("dy", fitValue("dy") - 5)}>︽</button><button aria-label="往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="上下" /><button aria-label="往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><button aria-label="往下 5" onClick={() => setFitValue("dy", fitValue("dy") + 5)}>︾</button><output>{fitValue("dy")}</output></div></div>
+            <div className="fit-row"><span>左右</span><div className="nudge wide"><button aria-label="往左 5" onClick={() => setFitValue("dx", fitValue("dx") - 5)}>《</button><button aria-label="往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="左右" /><button aria-label="往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><button aria-label="往右 5" onClick={() => setFitValue("dx", fitValue("dx") + 5)}>》</button><output>{fitValue("dx")}</output></div></div>
             <div className="fit-row"><span>大小</span><div className="nudge"><button aria-label="縮小" onClick={() => setFitValue("scale", Math.max(0.5, Math.round((fitValue("scale") - 0.01) * 100) / 100))}>－</button><input type="range" min={50} max={160} step={1} value={Math.round(fitValue("scale") * 100)} onChange={(e) => setFitValue("scale", Number(e.target.value) / 100)} aria-label="大小" /><button aria-label="放大" onClick={() => setFitValue("scale", Math.min(1.6, Math.round((fitValue("scale") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("scale") * 100)}%</output></div></div>
             <label className="fit-default"><input type="checkbox" checked={showBase} onChange={(e) => setShowBase(e.target.checked)} /> {kind === "head" ? "疊上原頭像與臉部範圍" : "顯示我的頭與臉部範圍"}</label>
             <button className="fit-reset" onClick={() => setFits(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 })))}>全部重設</button>
@@ -293,7 +321,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
         <div className="preview-bottom"><span>{image ? "透明 PNG · 請檢查各角度是不是同一個" : `生成時會依固定規範畫出${K.label}。`}</span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={x}>{x === "check" ? "透明" : x === "light" ? "淺" : "深"}</button>)}</div></div>
         {image && <div className="download-row"><button disabled={loading} onClick={() => { const a = document.createElement("a"); a.href = image; a.download = `${kind}-sheet.png`; a.click(); }}><Download size={17} />下載完整 PNG</button></div>}
         {image && job && <div className="job-card"><div><b>這個{K.label} · 第 {job.attempts} 次生成</b><span>在上面三組裡點選一組，滿意就進入下一步對位；都不滿意可以再生成三組（仍是同一個，每次再扣 {fmtCoin(regenCost)} 點）。</span></div>
-          <div className="job-actions"><button className="primary" disabled={loading || !qa || qa.views.length !== viewCount} onClick={() => void startFit()}>下一步：對位 <ArrowRight size={15} /></button><button disabled={loading || !canRegenerate} onClick={() => void generate(job.id)}><Sparkles size={14} />再生成三組（再扣 {fmtCoin(regenCost)} 點）</button></div></div>}
+          <div className="job-actions"><button className="primary" disabled={loading} onClick={() => void startFit()}>下一步：對位 <ArrowRight size={15} /></button><button disabled={loading || !canRegenerate} onClick={() => void generate(job.id)}><Sparkles size={14} />再生成三組（再扣 {fmtCoin(regenCost)} 點）</button></div></div>}
         {image && qa && <div className="qa"><h3>規格檢查 <b className={qa.ok ? "ok" : "warn"}>{qa.ok ? "全部通過" : "有項目需要留意"}</b></h3>
           <ul>{qa.checks.map((check) => <li key={check.id} className={check.ok ? "ok" : "bad"}>{check.ok ? <Check size={14} /> : <TriangleAlert size={14} />}<span><strong>{check.label}</strong><small>{check.detail}</small></span></li>)}</ul>
           <p className="qa-note">這是依規格自動量的參考，最後仍請用眼睛看：{K.qaNote}</p></div>}
@@ -306,7 +334,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
       {!library.length ? <p className="empty-note">還沒有{K.label}。生成一個並完成後，會出現在這裡。</p> : <div className="library">{library.map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
         <div className="lib-thumb"><AuthImg url={item.coverUrl || item.bodyUrl} token={token} alt={item.name || K.label} /></div>
         <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong><span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span></div><small>{item.description || "—"}</small><small>生成 {item.attempts} 次</small></div>
-        <div className="lib-actions"><button onClick={() => void remove(item)}><Trash2 size={13} />刪除</button></div>
+        <div className="lib-actions"><button onClick={() => void editItem(item)}><SlidersHorizontal size={13} />編輯</button><button onClick={() => void remove(item)}><Trash2 size={13} />刪除</button></div>
       </article>)}</div>}
     </section>
   </>;
