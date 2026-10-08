@@ -48,7 +48,7 @@ function AuthImg({ url, token, alt }: { url: string; token: string; alt: string 
   return src ? <img src={src} alt={alt} loading="lazy" /> : null;
 }
 
-type ViewFit = { scale: number; dx: number; dy: number };
+type ViewFit = { scale: number; dx: number; dy: number; sw?: number; sh?: number };   // scale 整體大小；sw 寬度、sh 高度（拉寬／拉窄、拉高／拉扁，預設 1）
 const OUT_SCALE = 2;   // 輸出是遊戲頭像格子的 2 倍大（遊戲原本的頭像是低解析，新頭像可以更細）
 
 function cropView(source: HTMLImageElement, v: ViewBox) {
@@ -67,18 +67,17 @@ function padFor(kind: Kind, base: Rect): [number, number, number, number] {
 function placeItem(kind: Kind, view: number, headIndex: number, crop: HTMLCanvasElement, fit: ViewFit, factor: number) {
   const base = HEADS[headIndex][view] as Rect, front = HEADS[headIndex][0] as Rect, sk = base.s || front.s || [0, base.w, 0, base.h * 0.62];
   const skinW = sk[1] - sk[0], skinCx = (sk[0] + sk[1]) / 2, skinH = sk[3] - sk[2];
-  const aspect = crop.height / crop.width;
-  let w: number, cx: number, bottom: number;
+  const aspect = crop.height / crop.width, sw = fit.sw ?? 1, sh = fit.sh ?? 1;
+  let baseW: number, cx: number, anchor: "bottom" | "eye", bottom = 0;
   if (kind === "head") {
-    const k = Math.min(base.w / crop.width, base.h / crop.height) * fit.scale;
-    w = crop.width * k; cx = base.w / 2; bottom = base.h;
+    baseW = crop.width * Math.min(base.w / crop.width, base.h / crop.height) * fit.scale; cx = base.w / 2; anchor = "bottom"; bottom = base.h;
   } else if (kind === "cap") {
-    w = (view === 0 ? skinW * 1.25 : view === 1 ? base.w * 0.95 : base.w * 0.8) * fit.scale; cx = view === 0 ? skinCx : base.w / 2; bottom = sk[2] + skinH * (view === 2 ? 0.55 : 0.32);
+    baseW = (view === 0 ? skinW * 1.25 : view === 1 ? base.w * 0.95 : base.w * 0.8) * fit.scale; cx = view === 0 ? skinCx : base.w / 2; anchor = "bottom"; bottom = sk[2] + skinH * (view === 2 ? 0.55 : 0.32);
   } else {
-    w = (view === 0 ? skinW * 0.95 : skinW * 0.8) * fit.scale; cx = skinCx;
-    const eye = HEAD_EYE_Y[headIndex][view === 0 ? 0 : 1]; bottom = eye + (w * aspect) / 2;
+    baseW = (view === 0 ? skinW * 0.95 : skinW * 0.8) * fit.scale; cx = skinCx; anchor = "eye";
   }
-  const h = w * aspect;
+  const w = baseW * sw, h = baseW * aspect * sh;   // 寬、高各自拉伸
+  if (anchor === "eye") bottom = HEAD_EYE_Y[headIndex][view === 0 ? 0 : 1] + h / 2;
   return { x: (cx - w / 2 + fit.dx) * factor, y: (bottom - h + fit.dy) * factor, w: w * factor, h: h * factor };
 }
 /** 輸出給遊戲的圖：每個角度一張透明 PNG，大小 = （原頭像格子 + 外圍留邊）× 2，素材已經依對位放好，遊戲只要蓋在原頭像的位置上。 */
@@ -121,7 +120,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
   // 對位：新頭像要放到原本那顆頭的位置（遊戲的眼鏡、帽子、耳機、服裝接點都是照原頭像量的），所以疊在原頭像上調整
   const [phase, setPhase] = useState<"make" | "fit">("make");
   const [crops, setCrops] = useState<HTMLCanvasElement[]>([]);
-  const [fits, setFits] = useState<ViewFit[]>(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 })));
+  const [fits, setFits] = useState<ViewFit[]>(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0, sw: 1, sh: 1 })));
   const [fitTarget, setFitTarget] = useState<number>(3);
   const [showBase, setShowBase] = useState(true);
   const [headIndex, setHeadIndex] = useState(0);
@@ -187,7 +186,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     });
   }, [phase, crops, atlas, fits, headIndex, showBase, headImgs]);
   const setFitValue = (key: keyof ViewFit, value: number) => setFits((current) => current.map((f, view) => (fitTarget === 3 || fitTarget === view) ? { ...f, [key]: value } : f));
-  const fitValue = (key: keyof ViewFit) => fits[fitTarget === 3 ? 0 : fitTarget][key];
+  const fitValue = (key: keyof ViewFit) => fits[fitTarget === 3 ? 0 : fitTarget][key] ?? (key === "dx" || key === "dy" ? 0 : 1);
   /** 依欄位空白切不出預期的角度數時（例如角度之間貼在一起），退回「平均切成幾欄、各自貼著輪廓裁」，還是可以進對位自己調。 */
   function equalSplit(data: ImageData, count: number): ViewBox[] {
     const out: ViewBox[] = [], colW = Math.floor(data.width / count);
@@ -210,7 +209,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     if (views.length !== viewCount) views = equalSplit(data, viewCount);
     if (views.length !== viewCount) { setError("找不到完整的各個角度，請重新生成。"); return; }
     setCrops(views.map((v) => cropView(img, v)));
-    setFits(initial && initial.length === viewCount ? initial : viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 })));
+    setFits(initial && initial.length === viewCount ? initial : viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0, sw: 1, sh: 1 })));
     if (forHead !== undefined && !lockedHead) setHeadIndex(forHead);
     setFitTarget(3); setPhase("fit");
   }
@@ -323,11 +322,13 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
           <div className="fit-controls">
             <div className="fit-row"><span>對位的頭</span><div className="fit-own">{lockedHead ? `${HEAD_NAMES[headIndex]}（本人）· 自己做的${K.label}只有自己能用，所以固定對到自己的頭` : <select value={headIndex} onChange={(e) => setHeadIndex(Number(e.target.value))}>{HEAD_NAMES.map((n, k) => <option key={n} value={k}>{n}</option>)}</select>}</div></div>
             <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ...viewIndexes.map((view) => [VIEW_NAMES[view], view])] as Array<[string, number]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
-            <div className="fit-row"><span>上下</span><div className="nudge wide"><button aria-label="往上 5" onClick={() => setFitValue("dy", fitValue("dy") - 5)}>︽</button><button aria-label="往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="上下" /><button aria-label="往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><button aria-label="往下 5" onClick={() => setFitValue("dy", fitValue("dy") + 5)}>︾</button><output>{fitValue("dy")}</output></div></div>
-            <div className="fit-row"><span>左右</span><div className="nudge wide"><button aria-label="往左 5" onClick={() => setFitValue("dx", fitValue("dx") - 5)}>《</button><button aria-label="往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="左右" /><button aria-label="往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><button aria-label="往右 5" onClick={() => setFitValue("dx", fitValue("dx") + 5)}>》</button><output>{fitValue("dx")}</output></div></div>
+            <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="上下" /><button aria-label="往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><output>{fitValue("dy")}</output></div></div>
+            <div className="fit-row"><span>左右</span><div className="nudge"><button aria-label="往左" onClick={() => setFitValue("dx", fitValue("dx") - 1)}><ArrowLeft size={15} /></button><input type="range" min={-120} max={120} step={1} value={fitValue("dx")} onChange={(e) => setFitValue("dx", Number(e.target.value))} aria-label="左右" /><button aria-label="往右" onClick={() => setFitValue("dx", fitValue("dx") + 1)}><ArrowRight size={15} /></button><output>{fitValue("dx")}</output></div></div>
             <div className="fit-row"><span>大小</span><div className="nudge"><button aria-label="縮小" onClick={() => setFitValue("scale", Math.max(0.5, Math.round((fitValue("scale") - 0.01) * 100) / 100))}>－</button><input type="range" min={50} max={160} step={1} value={Math.round(fitValue("scale") * 100)} onChange={(e) => setFitValue("scale", Number(e.target.value) / 100)} aria-label="大小" /><button aria-label="放大" onClick={() => setFitValue("scale", Math.min(1.6, Math.round((fitValue("scale") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("scale") * 100)}%</output></div></div>
+            <div className="fit-row"><span>寬度</span><div className="nudge"><button aria-label="寬度變小" onClick={() => setFitValue("sw", Math.max(0.3, Math.round((fitValue("sw") - 0.01) * 100) / 100))}>－</button><input type="range" min={40} max={200} step={1} value={Math.round(fitValue("sw") * 100)} onChange={(e) => setFitValue("sw", Number(e.target.value) / 100)} aria-label="寬度" /><button aria-label="寬度變大" onClick={() => setFitValue("sw", Math.min(2, Math.round((fitValue("sw") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("sw") * 100)}%</output></div></div>
+            <div className="fit-row"><span>高度</span><div className="nudge"><button aria-label="高度變小" onClick={() => setFitValue("sh", Math.max(0.3, Math.round((fitValue("sh") - 0.01) * 100) / 100))}>－</button><input type="range" min={40} max={200} step={1} value={Math.round(fitValue("sh") * 100)} onChange={(e) => setFitValue("sh", Number(e.target.value) / 100)} aria-label="高度" /><button aria-label="高度變大" onClick={() => setFitValue("sh", Math.min(2, Math.round((fitValue("sh") + 0.01) * 100) / 100))}>＋</button><output>{Math.round(fitValue("sh") * 100)}%</output></div></div>
             <label className="fit-default"><input type="checkbox" checked={showBase} onChange={(e) => setShowBase(e.target.checked)} /> {kind === "head" ? "疊上原頭像與臉部範圍" : "顯示我的頭與臉部範圍"}</label>
-            <button className="fit-reset" onClick={() => setFits(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0 })))}>全部重設</button>
+            <button className="fit-reset" onClick={() => setFits(viewIndexes.map(() => ({ scale: 1, dx: 0, dy: 0, sw: 1, sh: 1 })))}>全部重設</button>
           </div>
           <div className="fit-save">
             <label className="field-label" htmlFor="head-name">{K.label}名稱 <span>最多 30 字</span></label>

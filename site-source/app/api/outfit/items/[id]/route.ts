@@ -46,7 +46,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const views = Array.isArray(assets.views) ? assets.views.map((value) => { const v = (value || {}) as Record<string, unknown>; return { w: clamp(v.w, 1, 3000), h: clamp(v.h, 1, 3000) }; }) : [];
     if (images.length !== 3 || images.some((image) => !image) || views.length !== 3) return Response.json({ error: "頭像圖片或尺寸資料不正確" }, { status: 400 });
     const pads = (Array.isArray(assets.pads) ? assets.pads : []).slice(0, 3).map((value) => (Array.isArray(value) ? value : []).concat([0, 0, 0, 0]).slice(0, 4).map((n) => clamp(n, 0, 600)));
-    const fits = (Array.isArray(assets.fits) ? assets.fits : []).slice(0, 3).map((value) => { const f = (value || {}) as Record<string, unknown>; return { scale: clamp(f.scale, 0.3, 3, 1), dx: clamp(f.dx, -200, 200), dy: clamp(f.dy, -200, 200) }; });
+    const fits = (Array.isArray(assets.fits) ? assets.fits : []).slice(0, 3).map((value) => { const f = (value || {}) as Record<string, unknown>; return { scale: clamp(f.scale, 0.3, 3, 1), dx: clamp(f.dx, -200, 200), dy: clamp(f.dy, -200, 200), sw: clamp(f.sw, 0.3, 3, 1), sh: clamp(f.sh, 0.3, 3, 1) }; });
     update.game = { kind: row.kind, ...(pads.length ? { pads } : {}), ...(fits.length ? { fits } : {}), headIndex: Math.round(clamp(assets.headIndex, 0, 4)), scale: clamp(assets.scale, 1, 4, 2), views };
     update.viewImages = images as Uint8Array[];
   }
