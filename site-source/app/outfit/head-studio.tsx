@@ -12,8 +12,8 @@ import { ACCESSORY_VIEWS } from "@/lib/accessory-spec";
 import { HEADS, HEAD_EYE_Y, HEAD_FEMALE, HEAD_NAMES } from "@/lib/outfit-heads";
 import type { Check as QaCheck, ViewBox } from "@/lib/outfit-check";
 
-type Wallet = { name: string; designer: boolean; pixelDesigner?: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number };
-type HeadItem = { id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string; game?: { headIndex?: number; fits?: ViewFit[]; behind?: boolean } | null };
+type Wallet = { account?: string; name: string; designer: boolean; pixelDesigner?: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number };
+type HeadItem = { ownerName?: string; ownerAccount?: string; id: string; name: string; status: string; description: string; attempts: number; updatedAt: string; kind: string; coverUrl: string; bodyUrl: string; game?: { headIndex?: number; fits?: ViewFit[]; behind?: boolean } | null };
 type Bg = "check" | "light" | "dark";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 type Kind = "head" | "cap" | "glasses";
@@ -137,6 +137,11 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
   const [headImgs, setHeadImgs] = useState<HTMLImageElement[] | null>(null);
   const [headLabel, setHeadLabel] = useState("原本的頭");
   const autoOpened = useRef(false);
+  // 管理者與 Machi：可以看、編輯全部人員的頭像／帽子／眼鏡
+  const [libScope, setLibScope] = useState<"mine" | "all">("mine");
+  const [libOwner, setLibOwner] = useState("");
+  const [foreign, setForeign] = useState(false);   // 正在編輯別人的素材：不鎖對位的頭，用那件素材當初存的原頭像格子
+  const canAll = Boolean(wallet && (wallet.admin || wallet.name === "Machi"));
   const fitCanvas = useRef<HTMLCanvasElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
@@ -145,7 +150,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
   const needsCoins = Boolean(wallet?.designer);
   const canGenerate = Boolean(token && wallet && (!needsCoins || wallet.balance >= wallet.spendPerGeneration) && (needsCoins || wallet.admin));
   const ownIndex = HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]);
-  const lockedHead = ownIndex >= 0;   // 設計師本人只能用自己的頭位置（自己做的頭像只有自己能用）
+  const lockedHead = ownIndex >= 0 && !foreign;   // 設計師本人只能用自己的頭位置（自己做的頭像只有自己能用）
   const canRegenerate = Boolean(job && wallet && (!wallet.designer || wallet.balance >= regenCost));
 
   useEffect(() => { loadImage("/wardrobe-heads.webp").then(setAtlas).catch(() => undefined); }, []);
@@ -226,6 +231,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
   /** 編輯之前完成的：用當初挑的那一組原圖重新進對位，帶回上次的位置與名稱；存檔時蓋掉原本的。 */
   async function editItem(item: HeadItem) {
     setError(""); setNote("");
+    setForeign(Boolean(item.ownerAccount && wallet?.account && item.ownerAccount !== wallet.account));
     try {
       const blobUrl = await fetch(item.bodyUrl, { headers: auth() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("讀不到當初生成的圖片"))).then((blob) => URL.createObjectURL(blob));
       setCandidates([blobUrl]); setPick(0); setDescribed(""); setJob({ id: item.id, attempts: item.attempts }); setName(item.name || "");
@@ -241,7 +247,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
   async function loadLibrary() {
     if (!token) return;
     try {
-      const response = await fetch("/api/outfit/items", { headers: auth() });
+      const response = await fetch(`/api/outfit/items${libScope === "all" && canAll ? "?all=1" : ""}`, { headers: auth() });
       const payload = await response.json() as { items?: HeadItem[] };
       const list = (payload.items || []).filter((item) => item.kind === kind);
       setLibrary(list);
@@ -249,7 +255,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
       if (target) { autoOpened.current = true; void editItem(target); }   // 個人形象精靈：直接打開要對位的那一件
     } catch { /* 下次再讀 */ }
   }
-  useEffect(() => { void loadLibrary(); }, [token]);
+  useEffect(() => { void loadLibrary(); }, [token, libScope, canAll]);
   // 挑到哪一組就量哪一組
   useEffect(() => {
     setQa(null);
@@ -271,6 +277,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
     setFiles((current) => [...current, ...accepted].slice(0, 2));
   }
   async function generate(itemId = "") {
+    setForeign(false);
     if (!itemId && !description.trim() && !files.length) { setError("請輸入髮型與臉部描述（關鍵字），或上傳一張參考照。"); return; }
     setLoading(true); setElapsed(0); setError(""); setNote("");
     try {
@@ -302,6 +309,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
       const savedId = job.id;
+      setForeign(false);
       setNote(`「${name.trim()}」已存進我的${K.label}，並發佈到元宇宙的造型欄`); setCandidates([]); setJob(null); setName(""); setDescribed(""); setPhase("make"); setCrops([]); setHairBehind(null);
       await loadLibrary();
       onSaved?.(savedId);   // 個人形象精靈：存完頭像就接著做身體拼接
@@ -375,10 +383,11 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
     </div>
     <section className="history">
       <div className="section-head"><div className="preview-title"><span className="step">03</span><h2>我的{K.label}</h2></div><button className="refresh" onClick={() => void loadLibrary()}>重新整理</button></div>
+      {canAll && <div className="lib-scope"><button className={libScope === "mine" ? "on" : ""} onClick={() => setLibScope("mine")}>我的</button><button className={libScope === "all" ? "on" : ""} onClick={() => setLibScope("all")}>全部人員</button>{libScope === "all" && <select value={libOwner} onChange={(e) => setLibOwner(e.target.value)} aria-label="依人員篩選"><option value="">所有人</option>{Array.from(new Set(library.map((item) => item.ownerName || item.ownerAccount || "").filter(Boolean))).map((name) => <option key={name} value={name}>{name}</option>)}</select>}</div>}
       <p className="history-total">完成的{K.label}會存在這裡，並自動出現在元宇宙人物工具欄的「造型」裡（只有你自己能用）。</p>
-      {!library.length ? <p className="empty-note">還沒有{K.label}。生成一個並完成後，會出現在這裡。</p> : <div className="library">{library.map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
+      {!library.length ? <p className="empty-note">還沒有{K.label}。生成一個並完成後，會出現在這裡。</p> : <div className="library">{library.filter((item) => libScope !== "all" || !libOwner || (item.ownerName || item.ownerAccount) === libOwner).map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
         <div className="lib-thumb"><AuthImg url={item.coverUrl || item.bodyUrl} token={token} alt={item.name || K.label} /></div>
-        <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong><span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span></div><small>{item.description || "—"}</small><small>生成 {item.attempts} 次</small></div>
+        <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong>{libScope === "all" && <span className="badge-status">{item.ownerName || item.ownerAccount || "—"}</span>}<span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span></div><small>{item.description || "—"}</small><small>生成 {item.attempts} 次</small></div>
         <div className="lib-actions"><button onClick={() => void editItem(item)}><SlidersHorizontal size={13} />編輯</button><button onClick={() => void remove(item)}><Trash2 size={13} />刪除</button></div>
       </article>)}</div>}
     </section>
