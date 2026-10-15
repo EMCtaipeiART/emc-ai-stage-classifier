@@ -444,6 +444,27 @@ export default function OutfitPage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
     finally { setFitBusy(false); }
   }
+  // 補快照：完成個人形象但還沒有頭像快照的帳號（舊版完成的、或上次存快照失敗），進服裝頁時自動用目前的頭像與身體補存一次
+  const snapTried = useRef("");
+  useEffect(() => {
+    if (!persona?.completed || !persona.outfitItemId || !persona.headItemId || !token || !headsImg || snapTried.current === persona.outfitItemId) return;
+    const outfit = library.find((entry) => entry.id === persona.outfitItemId);
+    if (!outfit || outfit.status !== "completed" || !outfit.bodyUrl) return;
+    snapTried.current = persona.outfitItemId;
+    try { if (sessionStorage.getItem(`persona-snap:${persona.outfitItemId}:${outfit.updatedAt}`)) return; } catch { /* 沒有 sessionStorage 就每次補 */ }
+    (async () => {
+      try {
+        const blobUrl = await fetch(outfit.bodyUrl, { headers: authHeaders() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("img"))).then((blob) => URL.createObjectURL(blob));
+        const body = await prepareBody(blobUrl);
+        const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${persona.headItemId}/${view}.png?t=${Date.now()}`)));
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean } }> };
+        const behind = list.heads?.find((h) => h.id === persona.headItemId)?.game?.behind;
+        const png = composeAvatar(body, headsImg, outfit.head || defaultHeadFit(0), imgs, typeof behind === "boolean" ? behind : null);
+        const response = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${outfit.updatedAt}`.replace(/[^\w:|.@-]/g, "-") }) });
+        if (response.ok) { const saved = await response.json().catch(() => ({})) as { changed?: boolean }; try { sessionStorage.setItem(`persona-snap:${persona.outfitItemId}:${outfit.updatedAt}`, "1"); } catch { /* 略過 */ } if (saved.changed) { try { window.parent?.postMessage({ type: "emcPersonaDone" }, "*"); } catch { /* 略過 */ } } }
+      } catch { /* 下次進來再補 */ }
+    })();
+  }, [persona?.completed, persona?.outfitItemId, library, token, headsImg]);
   /** 個人形象：直接打開指定的身體製作單，進入拼接（頭像用剛存好的那一個）。 */
   async function openOutfitById(id: string) {
     setMode("outfit"); setWizardView(false); setPersonaHeadOpen("");

@@ -7,5 +7,5 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as { png?: string; lookKey?: string };
   const result = await designApi("personaAvatarSnapshot", { editorToken, png: String(body.png || ""), lookKey: String(body.lookKey || "persona") });
   if (!result.ok) return Response.json({ error: result.error || "儲存頭像失敗" }, { status: 400 });
-  return Response.json({ ok: true, name: result.name, version: result.version });
+  return Response.json({ ok: true, name: result.name, version: result.version, changed: Boolean(result.changed) });
 }
