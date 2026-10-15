@@ -12,7 +12,7 @@ export function ensurePersonaTable() {
 }
 
 export type PersonaRow = { account: string; name: string; head_item_id: string; outfit_item_id: string; step: string; free_runs: number; created_at: string; updated_at: string; completed_at: string | null };
-export const FREE_RUN_LIMIT = 8;   // 測試期免費：每個帳號最多生成 8 次（頭像與身體各算一次）
+export const FREE_RUN_LIMIT = 8;   // 目前免費：每個帳號最多生成 8 次（頭像與身體各算一次），之後再改成扣點
 
 export function personaPublic(row: PersonaRow | null) {
   return row ? { step: row.step, headItemId: row.head_item_id, outfitItemId: row.outfit_item_id, freeRuns: row.free_runs, freeLimit: FREE_RUN_LIMIT, completed: Boolean(row.completed_at), completedAt: row.completed_at } : { step: "upload", headItemId: "", outfitItemId: "", freeRuns: 0, freeLimit: FREE_RUN_LIMIT, completed: false, completedAt: null };
@@ -39,14 +39,6 @@ export async function takeFreeRun(account: string, name: string): Promise<boolea
   if ((row?.free_runs || 0) >= FREE_RUN_LIMIT) return false;
   await env.DB!.prepare("UPDATE persona_profiles SET free_runs = free_runs + 1, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(account).run();
   return true;
-}
-
-/** 測試頁用：清掉自己的進度（頭像與服裝製作單不動）；免費次數只有管理員重置時才歸零，避免一般帳號用重新開始繞過上限。 */
-export async function resetPersona(account: string, admin: boolean) {
-  await ensurePersonaTable();
-  const row = await getPersona(account);
-  if (!row) return;
-  await env.DB!.prepare("UPDATE persona_profiles SET head_item_id = '', outfit_item_id = '', step = 'upload', completed_at = NULL, free_runs = CASE WHEN ? = 1 THEN 0 ELSE free_runs END, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(admin ? 1 : 0, account).run();
 }
 
 /** 這次生成失敗：把免費次數還回去（失敗不該算使用）。 */

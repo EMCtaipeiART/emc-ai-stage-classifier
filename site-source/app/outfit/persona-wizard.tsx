@@ -23,8 +23,8 @@ async function generateOne(token: string, kind: "head" | "outfit", file: File, n
 
 const STEPS = ["上傳個人照", "挑頭像與身體", "頭像對位", "身體拼接"];
 
-export default function PersonaWizard({ token, persona, setPersona, onOpenHead, onOpenOutfit, onFinished, departmentLabel, testMode = false }: {
-  token: string; persona: PersonaState; setPersona: (next: PersonaState) => void; departmentLabel: string; testMode?: boolean;
+export default function PersonaWizard({ token, persona, setPersona, onOpenHead, onOpenOutfit, onFinished, departmentLabel }: {
+  token: string; persona: PersonaState; setPersona: (next: PersonaState) => void; departmentLabel: string;
   onOpenHead: (itemId: string) => void; onOpenOutfit: (itemId: string) => void; onFinished: () => void;
 }) {
   const auth = useMemo(() => ({ "x-emc-editor-token": token }), [token]);
@@ -78,23 +78,10 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失敗"); }
     finally { setBusy(false); }
   }
-  async function restart() {
-    if (busy) return;
-    if (!confirm("確定重新開始？會清掉目前的進度（已做好的頭像與服裝仍保留在「我的頭像／我的服裝」）。")) return;
-    setBusy(true); setError("");
-    try {
-      const r = await fetch("/api/outfit/persona", { method: "POST", headers: { "Content-Type": "application/json", ...auth }, body: JSON.stringify({ reset: true }) });
-      const p = await r.json() as { persona?: PersonaState; error?: string };
-      if (!r.ok || !p.persona) throw new Error(p.error || "重新開始失敗");
-      setHead(null); setBody(null); setFile(null); setNotes(""); setPersona(p.persona);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "重新開始失敗"); }
-    finally { setBusy(false); }
-  }
   const remaining = Math.max(0, persona.freeLimit - persona.freeRuns);
 
   return <section className="persona">
-    {testMode && <div className="persona-banner"><span>測試頁：完成後也能重新開始（只清掉你的進度紀錄，之前做的頭像與服裝不會刪）。</span><button onClick={() => void restart()}>重新開始</button></div>}
-    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>測試期生成不扣平台幣</b>（剩餘 {remaining} 次）。</p></div></div>
+    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>目前生成不扣平台幣</b>（剩餘 {remaining} 次）。</p></div></div>
     <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} className={index < stepIndex ? "done" : index === stepIndex ? "now" : ""}><span>{index < stepIndex ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="error" role="alert">{error}</div>}
 
