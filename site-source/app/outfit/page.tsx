@@ -159,8 +159,9 @@ export default function OutfitPage() {
   const [personaDept, setPersonaDept] = useState("");
   const [wizardView, setWizardView] = useState(true);
   const [personaHeadOpen, setPersonaHeadOpen] = useState("");
+  const [simAs, setSimAs] = useState("");   // 模擬企劃部／專案部同仁看到的畫面（網址 as=planner／project；只改畫面）
   const [personaForced, setPersonaForced] = useState(false);   // 測試頁：網址帶 persona=1 時，不管完成與否、部門，都能進精靈（可重新開始）
-  const showWizard = Boolean(persona && (personaForced || (!persona.completed && /企劃部|專案部/.test(personaDept))));
+  const showWizard = Boolean(persona && (personaForced || (!persona.completed && /企劃部|專案部/.test(simAs || personaDept))));
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -260,6 +261,8 @@ export default function OutfitPage() {
   useEffect(() => {
     let value = "";
     try {
+      const asMatch = location.hash.match(/[#&]as=(planner|project)/);
+      if (asMatch) { const v = asMatch[1] === "planner" ? "企劃部" : "專案部"; setSimAs(v); try { sessionStorage.setItem("emcPersonaAs", v); } catch { /* 略過 */ } } else { try { const v = sessionStorage.getItem("emcPersonaAs"); if (v) setSimAs(v); } catch { /* 略過 */ } }
       if (/[#&]persona=1/.test(location.hash)) { setPersonaForced(true); try { sessionStorage.setItem("emcPersonaTest", "1"); } catch { /* 略過 */ } } else { try { if (sessionStorage.getItem("emcPersonaTest")) setPersonaForced(true); } catch { /* 略過 */ } }
       const match = location.hash.match(/[#&]t=([^&]+)/);
       if (match) { value = decodeURIComponent(match[1]); sessionStorage.setItem(TOKEN_KEY, value); history.replaceState(null, "", location.pathname + location.search); }
@@ -274,7 +277,7 @@ export default function OutfitPage() {
       const response = await fetch("/api/outfit/wallet", { headers: authHeaders() });
       const payload = await response.json() as Wallet & { error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取平台幣失敗");
-      setWallet(payload); setWalletError("");
+      setWallet(simAs ? { ...payload, designer: false, admin: false } : payload); setWalletError("");
     } catch (cause) { setWallet(null); setWalletError(cause instanceof Error ? cause.message : "讀取平台幣失敗"); }
   }
   useEffect(() => { void loadWallet(); void loadHistory(); }, [token]);
@@ -531,7 +534,7 @@ export default function OutfitPage() {
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
-      {showWizard && wizardView && persona ? <PersonaWizard token={token} persona={persona} setPersona={setPersona} departmentLabel={personaDept || "你的部門"} testMode={personaForced}
+      {showWizard && wizardView && persona ? <PersonaWizard token={token} persona={persona} setPersona={setPersona} departmentLabel={simAs || personaDept || "你的部門"} testMode={personaForced}
         onOpenHead={(id) => { setPersonaHeadOpen(id); setMode("head"); setWizardView(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
         onOpenOutfit={(id) => void openOutfitById(id)}
         onFinished={() => { setWizardView(false); setPersonaHeadOpen(""); setMode("outfit"); void loadLibrary(); }} /> : <>
