@@ -466,7 +466,7 @@ export default function OutfitPage() {
         const mine = await fetch("/api/outfit/items", { headers: authHeaders(), cache: "no-store" }).then((r) => r.json()) as { items?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } | null }> };
         const headGame = mine.items?.find((h) => h.id === persona.headItemId)?.game, behind = headGame?.behind;
         const png = composeAvatar(body, headsImg, outfit.head || defaultHeadFit(0), imgs, typeof behind === "boolean" ? behind : null, headGame?.pads || null);
-        const response = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${outfit.updatedAt}`.replace(/[^\w:|.@-]/g, "-") }) });
+        const response = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${outfit.updatedAt}`.replace(/[^\w:|.@-]/g, "-"), headId: persona.headItemId, outfitId: persona.outfitItemId }) });
         if (response.ok) { const saved = await response.json().catch(() => ({})) as { changed?: boolean }; try { sessionStorage.setItem(`persona-snap:${persona.outfitItemId}:${outfit.updatedAt}`, "1"); } catch { /* 略過 */ } if (saved.changed) { try { window.parent?.postMessage({ type: "emcPersonaDone" }, "*"); } catch { /* 略過 */ } } }
       } catch { /* 下次進來再補 */ }
     })();
@@ -484,7 +484,7 @@ export default function OutfitPage() {
   async function finishPersona() {
     if (!fitBody || !headsImg) return;
     const png = composeAvatar(fitBody, headsImg, fit, selectedHead, behindEff, selectedPads);
-    const saved = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${Date.now()}` }) });
+    const saved = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${Date.now()}`, headId: persona?.headItemId || "", outfitId: persona?.outfitItemId || "" }) });
     const savedPayload = await saved.json().catch(() => ({})) as { error?: string };
     if (!saved.ok) throw new Error(savedPayload.error || "頭像快照儲存失敗");
     const done = await fetch("/api/outfit/persona", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ step: "done", complete: true }) }).then((r) => r.json() as Promise<{ persona?: PersonaState }>);
