@@ -19,12 +19,12 @@ export async function designApi(action: string, payload: Record<string, unknown>
 
 export const editorTokenOf = (request: Request) => request.headers.get("x-emc-editor-token") || "";
 
-export type Who = { account: string; name: string; designer: boolean; admin: boolean; department: string };
+export type Who = { account: string; name: string; designer: boolean; pixelDesigner: boolean; admin: boolean; department: string };
 /** 這個 token 是誰（帳號、設計師名字）。token 無效回傳 null。 */
 export async function whoami(request: Request): Promise<Who | null> {
   const token = editorTokenOf(request);
   if (!token) return null;
   const result = await designApi("coinMe", { editorToken: token });
   if (!result.ok || !result.account) return null;
-  return { account: String(result.account), name: String(result.name || ""), designer: Boolean(result.designer), admin: Boolean(result.admin), department: String(result.department || "") };
+  return { account: String(result.account), name: String(result.name || ""), designer: Boolean(result.designer), pixelDesigner: Boolean(result.pixelDesigner), admin: Boolean(result.admin), department: String(result.department || "") };
 }

@@ -95,7 +95,7 @@ async function prepareBody(src: string): Promise<FitBody> {
   return { img, views: views.map((v, i) => ({ ...v, neckX: necks[i].x, neckY: necks[i].y })) };
 }
 type WalletEntry = { seq: number; at: string; kind: string; label: string; amount: number; counterparty: string; memo: string; ref: string };
-type Wallet = { name: string; designer: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
+type Wallet = { name: string; designer: boolean; pixelDesigner?: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
 const TOKEN_KEY = "emcEditorToken";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 /** 圖片要帶登入 token 才拿得到（<img> 不能帶標頭），所以用 fetch 取回再顯示。 */
@@ -580,7 +580,7 @@ export default function OutfitPage() {
             <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
             <div className="preview-bottom"><span>預設用接近遊戲裡的大小預覽；頭像是低解析的遊戲素材，放大檢查位置時會顯得比較糊，這是正常的。 <button className="zoom-toggle" onClick={() => setFitZoom(fitZoom === 1 ? 1.6 : 1)}>{fitZoom === 1 ? "放大檢查" : "回到實際大小"}</button></span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
             <div className="fit-controls">
-              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.designer ? `${selectedHead ? "目前選用的自訂頭像" : `${HEAD_NAMES[fit.headIndex]}（本人，原本的頭）`} · 自己做的服裝只有自己能穿，所以固定用自己的頭` : "預覽用（沒有設計師身分，這件服裝不會進元宇宙）"}</div></div>
+              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.pixelDesigner ? `${selectedHead ? "目前選用的自訂頭像" : `${HEAD_NAMES[fit.headIndex]}（本人，原本的頭）`} · 自己做的服裝只有自己能穿，所以固定用自己的頭` : selectedHead ? "你的自訂頭像 · 自己做的服裝只有自己能穿" : "預覽用（沒有選定頭像，這件服裝不會進元宇宙）"}</div></div>
               {selectedHead && <div className="fit-row"><span>頭的前後</span><div className="chips">{([["自動（依髮型）", "auto"], ["頭在身體前", "front"], ["頭在身體後", "back"]] as Array<[string, "auto" | "front" | "back"]>).map(([lab, v]) => <button key={v} className={behindChoice === v ? "on" : ""} onClick={() => setBehindChoice(v)}>{lab}</button>)}</div></div>}
               <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ["正面", 0], ["側面", 1], ["背面", 2]] as Array<[string, 0 | 1 | 2 | 3]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
               <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="頭往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-80} max={80} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="頭的上下位置" /><button aria-label="頭往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><b>{fitValue("dy")}</b></div></div>
