@@ -27,7 +27,7 @@ const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, re
  *  再依各自的寬度（含頭髮）左右排開、留間距——三個角度不會互相疊在一起。
  *  女生正面與側面頭髮在衣服後面、其餘頭在衣服上面（跟遊戲一樣）。
  *  畫面預覽用接近遊戲裡的大小（頭像本來就是低解析的遊戲素材，放太大才會顯得糊）；存檔用 336（跟發佈給遊戲的圖一樣）。 */
-function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220, custom: HTMLImageElement[] | null = null, behindOverride: boolean | null = null, only: number | null = null, info?: { head?: { x: number; y: number; w: number; h: number } }): HTMLCanvasElement {
+function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, targetH = 220, custom: HTMLImageElement[] | null = null, behindOverride: boolean | null = null, only: number | null = null, info?: { head?: { x: number; y: number; w: number; h: number } }, pads: number[][] | null = null): HTMLCanvasElement {
   const u = targetH / BODY_REF_HEIGHT, K = HEAD_K * fit.scale, gap = Math.round(targetH * 0.12), margin = Math.round(targetH * 0.06);
   const parts = body.views.map((view, index) => ({ view, index })).filter((entry) => only === null || entry.index === only).map(({ view, index }) => {
     const f = targetH / (view.y1 - view.y0), bw = (view.x1 - view.x0) * f, rect = HEADS[fit.headIndex][index], chin = chinOf(fit.headIndex, index as 0 | 1 | 2);
@@ -46,7 +46,7 @@ function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, tar
     if (info) info.head = { x: ox + p.hx, y: oy + p.hy, w: p.hw, h: p.hh };
     const drawBody = () => ctx.drawImage(body.img, p.view.x0, p.view.y0, p.view.x1 - p.view.x0, p.view.y1 - p.view.y0, ox, oy, p.bw, targetH);
     // 有選用自訂頭像就用它（三張圖的大小與位置都是照原頭像格子對好的，直接畫在同一個位置）；沒有才用原本的頭像圖集
-    const drawHead = () => custom ? ctx.drawImage(custom[p.index], ox + p.hx, oy + p.hy, p.hw, p.hh) : ctx.drawImage(headsImg, p.rect.x, p.rect.y, p.rect.w, p.rect.h, ox + p.hx, oy + p.hy, p.hw, p.hh);
+    const drawHead = () => custom ? (() => { const pad = pads?.[p.index] || [0, 0, 0, 0], hs = p.hw / p.rect.w; ctx.drawImage(custom[p.index], ox + p.hx - pad[0] * hs, oy + p.hy - pad[1] * hs, p.hw + (pad[0] + pad[2]) * hs, p.hh + (pad[1] + pad[3]) * hs); })() : ctx.drawImage(headsImg, p.rect.x, p.rect.y, p.rect.w, p.rect.h, ox + p.hx, oy + p.hy, p.hw, p.hh);
     const behind = behindOverride ?? HEAD_FEMALE[fit.headIndex];   // 長髮：正面與側面頭在身體後面
     if (behind && p.index < 2) { drawHead(); drawBody(); } else { drawBody(); drawHead(); }
     cursor += p.maxX - p.minX + gap;
@@ -54,9 +54,9 @@ function composeFit(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, tar
   return canvas;
 }
 /** 個人形象完成後的頭像快照：只畫正面，以頭為中心裁成正方形（160×160 透明 PNG）。 */
-function composeAvatar(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, custom: HTMLImageElement[] | null, behind: boolean | null): string {
+function composeAvatar(body: FitBody, headsImg: HTMLImageElement, fit: HeadFit, custom: HTMLImageElement[] | null, behind: boolean | null, pads: number[][] | null = null): string {
   const info: { head?: { x: number; y: number; w: number; h: number } } = {};
-  const sheet = composeFit(body, headsImg, fit, 336, custom, behind, 0, info);
+  const sheet = composeFit(body, headsImg, fit, 336, custom, behind, 0, info, pads);
   const head = info.head || { x: 0, y: 0, w: sheet.width, h: sheet.height / 2 };
   const size = Math.round(head.w * 1.35), cx = head.x + head.w / 2, cy = head.y + head.h * 0.52;
   const out = document.createElement("canvas"); out.width = out.height = 160;
@@ -203,11 +203,13 @@ export default function OutfitPage() {
   const [selectedHead, setSelectedHead] = useState<HTMLImageElement[] | null>(null);
   const [selectedBehind, setSelectedBehind] = useState<boolean | null>(null);
   const [selectedHeadId, setSelectedHeadId] = useState("");
+  const [selectedHeadIdx, setSelectedHeadIdx] = useState<number | null>(null);   // 這顆頭當初對位時用的是哪個原頭像格子，拼接要用同一個才對得上
+  const [selectedPads, setSelectedPads] = useState<number[][] | null>(null);   // 自訂頭像三個角度的外擴（避免拉寬拉高被切掉），拼接時要一起算進去
   const [headReload, setHeadReload] = useState(0);   // 頭像剛存好（發佈完成）時 +1，重新讀一次要拼的頭
   const [behindChoice, setBehindChoice] = useState<"auto" | "front" | "back">("auto");   // 頭在身體前或後（長髮通常在後）
   const behindEff: boolean | null = behindChoice === "auto" ? selectedBehind : behindChoice === "back";
   useEffect(() => {
-    setSelectedHead(null); setSelectedBehind(null); setSelectedHeadId("");
+    setSelectedHead(null); setSelectedBehind(null); setSelectedHeadId(""); setSelectedPads(null); setSelectedHeadIdx(null);
     if (!token) return;
     let cancelled = false;
     (async () => {
@@ -216,19 +218,21 @@ export default function OutfitPage() {
         const id = (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
-        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean } }> };
-        if (!cancelled) { setSelectedHead(imgs); setSelectedHeadId(id); const behind = list.heads?.find((h) => h.id === id)?.game?.behind; setSelectedBehind(typeof behind === "boolean" ? behind : null); }
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } }> };
+        if (!cancelled) { setSelectedHead(imgs); setSelectedHeadId(id); { const hi = list.heads?.find((h) => h.id === id)?.game?.headIndex; setSelectedHeadIdx(typeof hi === "number" ? hi : null); } setSelectedPads(list.heads?.find((h) => h.id === id)?.game?.pads || null); const behind = list.heads?.find((h) => h.id === id)?.game?.behind; setSelectedBehind(typeof behind === "boolean" ? behind : null); }
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
   }, [token, persona?.headItemId, persona?.step, headReload]);
+  // 拼接用的原頭像格子要跟頭像對位時一樣（自訂頭像）
+  useEffect(() => { if (selectedHeadIdx !== null && selectedHead && fit.headIndex !== selectedHeadIdx) setFit((current) => ({ ...current, headIndex: selectedHeadIdx })); }, [selectedHeadIdx, selectedHead, phase, fitBody]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
   useEffect(() => {
     if (phase !== "fit" || !fitBody || !headsImg || !fitCanvas.current) return;
-    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom), selectedHead, behindEff), target = fitCanvas.current;
+    const composed = composeFit(fitBody, headsImg, fit, Math.round(220 * fitZoom), selectedHead, behindEff, null, undefined, selectedPads), target = fitCanvas.current;
     target.width = composed.width; target.height = composed.height;
     target.getContext("2d")!.drawImage(composed, 0, 0);
-  }, [phase, fitBody, headsImg, fit, fitZoom, selectedHead, behindEff]);
+  }, [phase, fitBody, headsImg, fit, fitZoom, selectedHead, behindEff, selectedPads]);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
   const active = items.find((item) => item.id === activeId) || null;
@@ -436,7 +440,7 @@ export default function OutfitPage() {
     if (!fitName.trim()) { setError("請幫這件服裝取個名字。"); return; }
     setFitBusy(true); setError("");
     try {
-      const cover = composeFit(fitBody, headsImg, fit, 336, selectedHead, behindEff).toDataURL("image/png");
+      const cover = composeFit(fitBody, headsImg, fit, 336, selectedHead, behindEff, null, undefined, selectedPads).toDataURL("image/png");
       const response = await fetch(`/api/outfit/items/${job.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ name: fitName.trim(), isDefault: fitDefault, head: fit, views: fitBody.views, cover, complete, ...(active && active.candidates.length > 1 ? { variant: active.pick } : {}), ...(complete || job.status === "completed" ? buildGameAssets(fitBody, fit) : {}) }) });
       const payload = await response.json() as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
@@ -461,9 +465,9 @@ export default function OutfitPage() {
         const blobUrl = await fetch(outfit.bodyUrl, { headers: authHeaders() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("img"))).then((blob) => URL.createObjectURL(blob));
         const body = await prepareBody(blobUrl);
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${persona.headItemId}/${view}.png?t=${Date.now()}`)));
-        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean } }> };
-        const behind = list.heads?.find((h) => h.id === persona.headItemId)?.game?.behind;
-        const png = composeAvatar(body, headsImg, outfit.head || defaultHeadFit(0), imgs, typeof behind === "boolean" ? behind : null);
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][] } }> };
+        const headGame = list.heads?.find((h) => h.id === persona.headItemId)?.game, behind = headGame?.behind;
+        const png = composeAvatar(body, headsImg, outfit.head || defaultHeadFit(0), imgs, typeof behind === "boolean" ? behind : null, headGame?.pads || null);
         const response = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${outfit.updatedAt}`.replace(/[^\w:|.@-]/g, "-") }) });
         if (response.ok) { const saved = await response.json().catch(() => ({})) as { changed?: boolean }; try { sessionStorage.setItem(`persona-snap:${persona.outfitItemId}:${outfit.updatedAt}`, "1"); } catch { /* 略過 */ } if (saved.changed) { try { window.parent?.postMessage({ type: "emcPersonaDone" }, "*"); } catch { /* 略過 */ } } }
       } catch { /* 下次進來再補 */ }
@@ -481,7 +485,7 @@ export default function OutfitPage() {
   /** 個人形象最後一步：頭像快照存成站內頭像（直接換掉頭像框），並標記完成，之後不再出現這個流程。 */
   async function finishPersona() {
     if (!fitBody || !headsImg) return;
-    const png = composeAvatar(fitBody, headsImg, fit, selectedHead, behindEff);
+    const png = composeAvatar(fitBody, headsImg, fit, selectedHead, behindEff, selectedPads);
     const saved = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${Date.now()}` }) });
     const savedPayload = await saved.json().catch(() => ({})) as { error?: string };
     if (!saved.ok) throw new Error(savedPayload.error || "頭像快照儲存失敗");
@@ -592,7 +596,7 @@ export default function OutfitPage() {
               <label className="fit-default"><input type="checkbox" checked={fitDefault} onChange={(e) => setFitDefault(e.target.checked)} /> 設為我的預設服裝</label>
               <div className="fit-buttons">
                 <button className="generate" disabled={fitBusy || !fitName.trim()} onClick={() => void saveFit(job?.status !== "completed")}>{fitBusy ? <LoaderCircle size={18} className="spin" /> : <Check size={18} />}<span>{job?.status === "completed" ? "儲存修改" : "完成服裝製作"}</span></button>
-                <button className="ghost" disabled={fitBusy} onClick={() => setPhase("make")}>返回上一步</button>
+                <button className="ghost" disabled={fitBusy} onClick={() => { if (persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed)) { setPersonaHeadOpen(persona.headItemId); setMode("head"); window.scrollTo({ top: 0, behavior: "smooth" }); } else setPhase("make"); }}>{persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed) ? "返回頭像對位" : "返回上一步"}</button>
               </div>
               {job?.status === "draft" && <button className="refit" disabled={loading || fitBusy || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />對這一輪三組都不滿意？再生成三組（再扣 {fmtCoin(regenCost)} 點，仍是同一件）</button>}
             </div>
