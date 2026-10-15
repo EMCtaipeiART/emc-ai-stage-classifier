@@ -8,6 +8,7 @@ import PersonaWizard, { type PersonaState } from "./persona-wizard";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
+import { scrollStudioTop } from "@/lib/scroll";
 
 type Quality = string;
 type HistoryRecord = { id: string; createdAt: string; userId: string; status: string; model: string; quality: string; description: string; described: string; photoCount: number; seconds: number; usage: { input: number; output: number; total: number; costUsd: number }; transparent: boolean; error: string; imageUrl: string; variants?: number };
@@ -321,7 +322,7 @@ export default function OutfitPage() {
       if (!urls.length) { setError("讀取這張圖片失敗"); return; }
       const item: Generated = { id: record.id, candidates: urls, pick: 0, image: urls[0], model: record.model, quality: record.quality, seconds: record.seconds, usage: record.usage, label: record.description.slice(0, 24) || "照片生成", described: record.described };
       setItems((current) => [item, ...current.filter((existing) => existing.id !== record.id)].slice(0, 8)); setActiveId(record.id);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollStudioTop();
     })();
   }
 
@@ -412,7 +413,7 @@ export default function OutfitPage() {
   const ownHeadIndex = (owner = fitOwner) => headIndexOf(owner || wallet?.name || "");
   function enterFit(body: FitBody, nextFit: HeadFit, name: string, isDefault: boolean, owner = fitOwner) {
     setFitBody(body); setFit({ ...nextFit, headIndex: ownHeadIndex(owner) }); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollStudioTop();
   }
   /** 剛生成好 → 進入「套上大頭」。 */
   function pickCandidate(k: number) {
@@ -546,7 +547,7 @@ export default function OutfitPage() {
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
       {showWizard && wizardView && persona ? <PersonaWizard token={token} persona={persona} setPersona={setPersona} departmentLabel={personaDept || "你的部門"}
-        onOpenHead={(id) => { setPersonaHeadOpen(id); setMode("head"); setWizardView(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onOpenHead={(id) => { setPersonaHeadOpen(id); setMode("head"); setWizardView(false); scrollStudioTop(); }}
         onOpenOutfit={(id) => void openOutfitById(id)}
         onFinished={() => { setWizardView(false); setPersonaHeadOpen(""); setMode("outfit"); void loadLibrary(); }} /> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
@@ -603,7 +604,7 @@ export default function OutfitPage() {
               <label className="fit-default"><input type="checkbox" checked={fitDefault} onChange={(e) => setFitDefault(e.target.checked)} /> 設為我的預設服裝</label>
               <div className="fit-buttons">
                 <button className="generate" disabled={fitBusy || !fitName.trim()} onClick={() => void saveFit(job?.status !== "completed")}>{fitBusy ? <LoaderCircle size={18} className="spin" /> : <Check size={18} />}<span>{job?.status === "completed" ? "儲存修改" : "完成服裝製作"}</span></button>
-                <button className="ghost" disabled={fitBusy} onClick={() => { if (persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed)) { setPersonaHeadOpen(persona.headItemId); setMode("head"); window.scrollTo({ top: 0, behavior: "smooth" }); } else setPhase("make"); }}>{persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed) ? "返回頭像對位" : "返回上一步"}</button>
+                <button className="ghost" disabled={fitBusy} onClick={() => { if (persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed)) { setPersonaHeadOpen(persona.headItemId); setMode("head"); scrollStudioTop(); } else setPhase("make"); }}>{persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed) ? "返回頭像對位" : "返回上一步"}</button>
               </div>
               {job?.status === "draft" && <button className="refit" disabled={loading || fitBusy || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />對這一輪三組都不滿意？再生成三組（再扣 {fmtCoin(regenCost)} 點，仍是同一件）</button>}
             </div>

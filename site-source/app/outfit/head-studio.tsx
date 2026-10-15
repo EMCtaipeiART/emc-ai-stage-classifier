@@ -4,6 +4,7 @@
 // 參考圖是遊戲現有五位人物的頭像（lib/head-reference.ts），規格見 lib/head-spec.ts 與 EMC-ART-Pixel-Office/docs/HEAD_SPEC.md。
 // 完成的頭像存在「我的頭像」；目前還不會進元宇宙造型欄（遊戲要先支援自訂頭像）。
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { scrollStudioTop } from "@/lib/scroll";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircle, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import { analyzeHead } from "@/lib/head-check";
 import { analyzeAccessory, componentViews, valleyViews } from "@/lib/accessory-check";
@@ -233,7 +234,8 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
       const long = first && isLongHair(item.description);
       setHairBehind(typeof item.game?.behind === "boolean" ? item.game.behind : first ? long : null);
       await openFit(blobUrl, item.game?.fits, item.game?.headIndex ?? (first ? (long ? HEAD_LONG_BASE : HEAD_SHORT_BASE) : undefined));
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "無法開啟編輯"); }
+      scrollStudioTop();   // 編輯畫面在上方，從下面的清單按「編輯」時要捲上去，不然看起來像沒反應
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "無法開啟編輯"); scrollStudioTop(); }
   }
   useEffect(() => { if (!loading) return; const t = window.setInterval(() => setElapsed((n) => n + 1), 1000); return () => window.clearInterval(t); }, [loading]);
   async function loadLibrary() {
