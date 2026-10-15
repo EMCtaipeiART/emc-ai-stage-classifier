@@ -101,7 +101,7 @@ function buildAssets(kind: Kind, crops: HTMLCanvasElement[], headIndex: number, 
   return { views: outputs.map((c) => ({ w: c.width, h: c.height })), viewImages: outputs.map((c) => c.toDataURL("image/png")), cover: cover.toDataURL("image/png"), pads: crops.map((_, view) => padFor(kind, HEADS[headIndex][view] as Rect)) };
 }
 
-export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpenId = "" }: { kind: Kind; token: string; wallet: Wallet | null; reloadWallet: () => void; autoOpenId?: string }) {
+export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpenId = "", onSaved }: { kind: Kind; token: string; wallet: Wallet | null; reloadWallet: () => void; autoOpenId?: string; onSaved?: (itemId: string) => void }) {
   const K = KINDS[kind], viewCount = K.views, viewIndexes = Array.from({ length: viewCount }, (_, k) => k);
   const auth = (): Record<string, string> => token ? { "x-emc-editor-token": token } : {};
   const [description, setDescription] = useState("");
@@ -292,8 +292,10 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || "儲存失敗");
+      const savedId = job.id;
       setNote(`「${name.trim()}」已存進我的${K.label}，並發佈到元宇宙的造型欄`); setCandidates([]); setJob(null); setName(""); setDescribed(""); setPhase("make"); setCrops([]); setHairBehind(null);
       await loadLibrary();
+      onSaved?.(savedId);   // 個人形象精靈：存完頭像就接著做身體拼接
     } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
     finally { setSaving(false); }
   }

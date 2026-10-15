@@ -59,6 +59,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     update.game = { scale: 2, refHeight: 168, views, head: cleanHead(game.head) };
     update.viewImages = images as Uint8Array[];
   }
+  if (row.kind === "head" && typeof body.behind === "boolean") update.gameMerge = { behind: body.behind };   // 頭在身體前（false）或後（true）：個人形象拼接時再指定
   if (body.variant !== undefined) update.variant = Math.round(clamp(body.variant, 0, 2));
   if (body.isDefault !== undefined) update.isDefault = Boolean(body.isDefault);
   if (body.complete === true) {

@@ -57,7 +57,7 @@ export async function setGeneration(id: string, generationId: string, descriptio
   await env.DB!.prepare("UPDATE outfit_items SET generation_id = ?, variant = 0, attempts = attempts + 1, description = CASE WHEN ? != '' THEN ? ELSE description END, head_json = '', views_json = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(generationId, description.slice(0, 1000), description.slice(0, 1000), id).run();
 }
 
-export type ItemUpdate = { variant?: number; name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null; game?: unknown; viewImages?: Uint8Array[] | null };
+export type ItemUpdate = { gameMerge?: Record<string, unknown>; variant?: number; name?: string; isDefault?: boolean; head?: unknown; views?: unknown; complete?: boolean; cover?: Uint8Array | null; game?: unknown; viewImages?: Uint8Array[] | null };
 
 export async function updateItem(row: ItemRow, update: ItemUpdate) {
   await ensureItemsTable();
@@ -68,10 +68,11 @@ export async function updateItem(row: ItemRow, update: ItemUpdate) {
     for (let index = 0; index < 3; index += 1) await putAsset(`outfit-item/${row.id}-v${index}.png`, update.viewImages[index], "image/png");
     gameJson = JSON.stringify(update.game);
   }
+  if (update.gameMerge && gameJson) { try { gameJson = JSON.stringify({ ...JSON.parse(gameJson), ...update.gameMerge }); } catch { /* 原本的資料壞掉就不動 */ } }   // 只改設定（例如頭在身體前後），不重傳圖
   const status = update.complete ? "completed" : row.status;
   const isDefault = status === "completed" ? (update.isDefault === undefined ? Boolean(row.is_default) : update.isDefault) : false;
   const statements = [];
-  if (isDefault) statements.push(env.DB!.prepare("UPDATE outfit_items SET is_default = 0 WHERE owner_account = ? AND id != ?").bind(row.owner_account, row.id));
+  if (isDefault) statements.push(env.DB!.prepare("UPDATE outfit_items SET is_default = 0 WHERE owner_account = ? AND id != ? AND kind = ?").bind(row.owner_account, row.id, row.kind || "outfit"));
   statements.push(env.DB!.prepare("UPDATE outfit_items SET name = ?, status = ?, is_default = ?, variant = ?, head_json = ?, views_json = ?, cover_key = ?, game_json = ?, updated_at = CURRENT_TIMESTAMP, completed_at = CASE WHEN ? = 'completed' AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END WHERE id = ?")
     .bind(update.name === undefined ? row.name : update.name, status, isDefault ? 1 : 0, update.variant === undefined ? (row.variant || 0) : update.variant, update.head === undefined ? row.head_json : JSON.stringify(update.head), update.views === undefined ? row.views_json : JSON.stringify(update.views), coverKey, gameJson, status, row.id));
   await env.DB!.batch(statements);
