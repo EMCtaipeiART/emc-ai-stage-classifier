@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/access";
 import { designApi, editorTokenOf, whoami } from "@/lib/coins-client";
 import { createDraft, getItem, setGeneration } from "@/lib/outfit-items";
 import { saveOutfitRecord } from "@/lib/outfit-history";
-import { FREE_RUN_LIMIT, refundFreeRun, takeFreeRun } from "@/lib/persona";
+import { alreadyGenerated, upsertPersona } from "@/lib/persona";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 import { buildHeadPrompt, DESCRIBE_HEAD_INSTRUCTIONS } from "@/lib/head-spec";
@@ -137,12 +137,12 @@ export async function POST(request: Request) {
   // 平台幣：要用設計系統帳號（有 token）才能生成；先扣 200 點，沒有成功就退回。管理員（沒有設計師身分）不扣點。
   const editorToken = editorTokenOf(request);
   if (!editorToken) return Response.json({ error: "請從設計需求系統登入，再從左側選單的「服裝」進入這個頁面；生成需要設計師帳號的平台幣。", reason: "LOGIN_REQUIRED" }, { status: 401 });
-  // 個人形象（企劃／專案人員第一次建立角色，測試期）：用個人照生成頭像與身體，不扣平台幣，每個帳號有免費次數上限
+  // 個人形象（企劃／專案人員第一次建立角色）：用個人照生成頭像與身體，目前不扣平台幣；每人頭像、身體各只能生成一次
   const onboarding = String(form.get("onboarding")) === "1" && (itemKind === "head" || itemKind === "outfit") && !refit;
   const onboardingWho = onboarding ? await whoami(request) : null;
   if (onboarding) {
     if (!onboardingWho) return Response.json({ error: "登入已過期，請回設計需求系統重新登入後再進入。", reason: "TOKEN_EXPIRED" }, { status: 401 });
-    if (!(await takeFreeRun(onboardingWho.account, onboardingWho.name || onboardingWho.account))) return Response.json({ error: `測試期的免費生成次數已用完（每個帳號 ${FREE_RUN_LIMIT} 次）。`, reason: "FREE_LIMIT" }, { status: 429 });
+    if (await alreadyGenerated(onboardingWho.account, itemKind as "head" | "outfit")) return Response.json({ error: "每人只能生成一次，你已經生成過了。", reason: "ONCE_ONLY" }, { status: 429 });
   }
   const generationId = crypto.randomUUID();
   // 同一件服裝重新生成（還沒完成的製作單）：只扣 100 點，結果換成這次的圖；沒帶 itemId 就是新的一件（200 點）
@@ -171,7 +171,6 @@ export async function POST(request: Request) {
       const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
       // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
       const fail = async (message: string) => {
-        if (onboarding && onboardingWho) await refundFreeRun(onboardingWho.account).catch(() => undefined);   // 測試期：失敗不算免費次數
         // 沒有成功：先把這次扣的平台幣退回（只有這個站能退），再記錄
         let refunded = false;
         if (!coin.exempt) {
@@ -216,7 +215,7 @@ export async function POST(request: Request) {
           // 這次的結果掛到製作單上：新的一件就建立草稿，重新生成就換成這次的圖（之前的圖仍留在生成紀錄裡）
           const text = [description, described].filter(Boolean).join("；");
           if (itemId) await setGeneration(itemId, generationId, text);
-          else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId, kind: itemKind }); }
+          else { finalItemId = crypto.randomUUID(); await createDraft({ id: finalItemId, account: String(reserve.account || userId), name: coin.holder, description: text, generationId, kind: itemKind }); if (onboardingWho) await upsertPersona(onboardingWho.account, onboardingWho.name || onboardingWho.account, itemKind === "head" ? { headItemId: finalItemId } : { outfitItemId: finalItemId }); }
         } catch (cause) { recordWarning = cause instanceof Error ? cause.message : "紀錄寫入失敗"; }
         send({
           recordId: base.id, recordWarning, coin, itemId: finalItemId, attempt, regenerationCost: 50,

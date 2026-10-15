@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getItem } from "@/lib/outfit-items";
 
 // 個人形象（企劃／專案人員第一次進服裝頁建立自己的角色）：上傳個人照 → 生成頭像與身體各三個 → 各選一個 → 拼接 → 完成。
 // 完成後這個入口就不再出現。資料表第一次用到才建（原因同 outfit-history.ts）。
@@ -12,10 +13,9 @@ export function ensurePersonaTable() {
 }
 
 export type PersonaRow = { account: string; name: string; head_item_id: string; outfit_item_id: string; step: string; free_runs: number; created_at: string; updated_at: string; completed_at: string | null };
-export const FREE_RUN_LIMIT = 8;   // 目前免費：每個帳號最多生成 8 次（頭像與身體各算一次），之後再改成扣點
 
 export function personaPublic(row: PersonaRow | null) {
-  return row ? { step: row.step, headItemId: row.head_item_id, outfitItemId: row.outfit_item_id, freeRuns: row.free_runs, freeLimit: FREE_RUN_LIMIT, completed: Boolean(row.completed_at), completedAt: row.completed_at } : { step: "upload", headItemId: "", outfitItemId: "", freeRuns: 0, freeLimit: FREE_RUN_LIMIT, completed: false, completedAt: null };
+  return row ? { step: row.step, headItemId: row.head_item_id, outfitItemId: row.outfit_item_id, completed: Boolean(row.completed_at), completedAt: row.completed_at } : { step: "upload", headItemId: "", outfitItemId: "", completed: false, completedAt: null };
 }
 
 export async function getPersona(account: string): Promise<PersonaRow | null> {
@@ -31,18 +31,11 @@ export async function upsertPersona(account: string, name: string, patch: { head
     .bind(name, name, patch.headItemId ?? null, patch.outfitItemId ?? null, patch.step ?? null, patch.complete ? 1 : 0, account).run();
 }
 
-/** 免費生成次數 +1；超過上限回傳 false（不增加）。 */
-export async function takeFreeRun(account: string, name: string): Promise<boolean> {
-  await ensurePersonaTable();
+/** 每人每種（頭像、身體）只能生成一次：已經有一件還沒刪除的製作單就不能再生成。生成失敗沒有製作單，可以重試。 */
+export async function alreadyGenerated(account: string, kind: "head" | "outfit"): Promise<boolean> {
   const row = await getPersona(account);
-  if (!row) await env.DB!.prepare("INSERT OR IGNORE INTO persona_profiles (account, name) VALUES (?, ?)").bind(account, name).run();
-  if ((row?.free_runs || 0) >= FREE_RUN_LIMIT) return false;
-  await env.DB!.prepare("UPDATE persona_profiles SET free_runs = free_runs + 1, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(account).run();
-  return true;
-}
-
-/** 這次生成失敗：把免費次數還回去（失敗不該算使用）。 */
-export async function refundFreeRun(account: string) {
-  await ensurePersonaTable();
-  await env.DB!.prepare("UPDATE persona_profiles SET free_runs = MAX(0, free_runs - 1) WHERE account = ?").bind(account).run();
+  const id = kind === "head" ? row?.head_item_id : row?.outfit_item_id;
+  if (!id) return false;
+  const item = await getItem(id);
+  return Boolean(item && item.status !== "deleted");
 }

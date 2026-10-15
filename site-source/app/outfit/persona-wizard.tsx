@@ -5,9 +5,9 @@ import { Check, LoaderCircle, Upload, UserRound } from "lucide-react";
 
 // 個人形象精靈（企劃／專案人員第一次進服裝頁）：01 上傳個人照 → 02 頭像與身體各生成三個、各挑一個 → 03 頭像對位 → 04 身體拼接 → 完成。
 // 03、04 沿用「頭像」與「服裝」原本的對位／拼接畫面（手法完全一樣），這裡只負責串起步驟與進度。測試期生成不扣平台幣。
-export type PersonaState = { step: string; headItemId: string; outfitItemId: string; freeRuns: number; freeLimit: number; completed: boolean };
+export type PersonaState = { step: string; headItemId: string; outfitItemId: string; completed: boolean };
 type Candidate = { itemId: string; images: string[]; pick: number };
-type ItemLite = { id: string; status: string; kind?: string };
+type ItemLite = { id: string; status: string; kind?: string; bodyUrl?: string; variant?: number };
 
 async function generateOne(token: string, kind: "head" | "outfit", file: File, notes: string): Promise<Candidate> {
   const form = new FormData();
@@ -37,6 +37,7 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
   const [body, setBody] = useState<Candidate | null>(null);
   const [items, setItems] = useState<ItemLite[]>([]);
   const input = useRef<HTMLInputElement>(null);
+  const restoring = useRef(false);
   const preview = useMemo(() => file ? URL.createObjectURL(file) : "", [file]);
   const stepIndex = persona.step === "pick" ? 1 : persona.step === "fit" ? (items.find((i) => i.id === persona.headItemId)?.status === "completed" ? 3 : 2) : persona.step === "done" ? 4 : (head && body ? 1 : 0);
 
@@ -53,15 +54,43 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
     }
   }, [persona.step, headDone, outfitDone]);
 
+  const headExists = items.some((i) => i.id === persona.headItemId);
+  const outfitExists = items.some((i) => i.id === persona.outfitItemId);
+  // 重新整理或回來時：把之前生成的三個候選從紀錄裡讀回來（每人只能生成一次，不能因為頁面重新載入就丟掉）
+  useEffect(() => {
+    if (persona.step !== "pick" || !headExists || !outfitExists || (head && body) || restoring.current) return;
+    restoring.current = true;
+    (async () => {
+      try {
+        const load = async (id: string): Promise<Candidate | null> => {
+          const item = items.find((entry) => entry.id === id);
+          if (!item?.bodyUrl) return null;
+          const images: string[] = [];
+          for (let k = 0; k < 3; k += 1) {
+            const blob = await fetch(`${item.bodyUrl.replace(/v=\d+$/, "")}v=${k}`, { headers: auth }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("img"))).catch(() => null);
+            if (blob) images.push(URL.createObjectURL(blob));
+          }
+          return images.length ? { itemId: id, images, pick: Math.min(item.variant || 0, images.length - 1) } : null;
+        };
+        const [h, b] = await Promise.all([load(persona.headItemId), load(persona.outfitItemId)]);
+        if (h && b) { setHead(h); setBody(b); }
+      } finally { restoring.current = false; }
+    })();
+  }, [persona.step, headExists, outfitExists, items.length]);
   async function generate() {
     if (!file || busy) return;
     setBusy(true); setElapsed(0); setError("");
     try {
-      const [h, b] = await Promise.all([generateOne(token, "head", file, notes), generateOne(token, "outfit", file, notes)]);
-      setHead(h); setBody(b);
-      const r = await fetch("/api/outfit/persona", { method: "POST", headers: { "Content-Type": "application/json", ...auth }, body: JSON.stringify({ headItemId: h.itemId, outfitItemId: b.itemId, step: "pick" }) });
+      // 每人每種只能生成一次：已經有的（例如上次只成功一半）不再重生成，只補缺的
+      const [h, b] = await Promise.all([
+        headExists ? Promise.resolve(null) : generateOne(token, "head", file, notes),
+        outfitExists ? Promise.resolve(null) : generateOne(token, "outfit", file, notes),
+      ]);
+      if (h) setHead(h); if (b) setBody(b);
+      const r = await fetch("/api/outfit/persona", { method: "POST", headers: { "Content-Type": "application/json", ...auth }, body: JSON.stringify({ ...(h ? { headItemId: h.itemId } : {}), ...(b ? { outfitItemId: b.itemId } : {}), step: "pick" }) });
       const p = await r.json() as { persona?: PersonaState }; if (p.persona) setPersona(p.persona);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); }
+      void loadItems();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); void loadItems(); }
     finally { setBusy(false); }
   }
   async function next() {
@@ -78,10 +107,9 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
     } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失敗"); }
     finally { setBusy(false); }
   }
-  const remaining = Math.max(0, persona.freeLimit - persona.freeRuns);
 
   return <section className="persona">
-    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>目前生成不扣平台幣</b>（剩餘 {remaining} 次）。</p></div></div>
+    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>每人只有一次生成機會，目前不扣平台幣</b>，請先選好照片再生成。</p></div></div>
     <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} className={index < stepIndex ? "done" : index === stepIndex ? "now" : ""}><span>{index < stepIndex ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="error" role="alert">{error}</div>}
 
@@ -91,8 +119,7 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
       {preview && <div className="thumbs"><div><img src={preview} alt="個人照" /></div></div>}
       <label className="field-label" htmlFor="persona-notes">補充說明 <span>選填：想要的髮型、穿著、配件…</span></label>
       <textarea id="persona-notes" value={notes} maxLength={300} disabled={busy} placeholder="例如：短髮、戴黑框眼鏡、喜歡穿襯衫" onChange={(e) => setNotes(e.target.value)} />
-      <button className="generate" onClick={() => void generate()} disabled={busy || !file || remaining < 2}>{busy ? <><LoaderCircle size={19} className="spin" />生成中…{elapsed} 秒（頭像與身體同時進行，約 1～3 分鐘）</> : "生成頭像與身體（各 3 個）"}</button>
-      {remaining < 2 && <p className="wallet-warn">免費次數不足，請聯絡管理員。</p>}
+      <button className="generate" onClick={() => void generate()} disabled={busy || !file}>{busy ? <><LoaderCircle size={19} className="spin" />生成中…{elapsed} 秒（頭像與身體同時進行，約 1～3 分鐘）</> : (headExists || outfitExists ? "補生成缺少的部分" : "生成頭像與身體（各 3 個）")}</button>
     </div>}
 
     {stepIndex === 1 && head && body && <div className="persona-card">
