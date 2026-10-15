@@ -51,6 +51,10 @@ function AuthImg({ url, token, alt }: { url: string; token: string; alt: string 
 type ViewFit = { scale: number; dx: number; dy: number; sw?: number; sh?: number };   // scale 整體大小；sw 寬度、sh 高度（拉寬／拉窄、拉高／拉扁，預設 1）
 const OUT_SCALE = 2;   // 輸出是遊戲頭像格子的 2 倍大（遊戲原本的頭像是低解析，新頭像可以更細）
 
+/** 從描述（AI 讀照片寫的髮型特徵）判斷是不是長髮：長髮、及肩、馬尾、辮子都算。 */
+export const isLongHair = (text: string) => /\blong\b[^,.;，。]*\bhair|hair[^,.;，。]*\blong\b|\b(shoulder|waist|chest)[- ]?(length)?\b|ponytail|braid|pigtail|長髮|及肩|披肩|馬尾|辮/i.test(text || "");
+const HEAD_SHORT_BASE = 4, HEAD_LONG_BASE = 0;   // 短髮對位用 Machi（4）、長髮對位用 Leona（0）的原頭像
+
 function cropView(source: HTMLImageElement, v: ViewBox) {
   const canvas = document.createElement("canvas"); canvas.width = v.x1 - v.x0; canvas.height = v.y1 - v.y0;
   canvas.getContext("2d")!.drawImage(source, v.x0, v.y0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
@@ -224,8 +228,11 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
     try {
       const blobUrl = await fetch(item.bodyUrl, { headers: auth() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("讀不到當初生成的圖片"))).then((blob) => URL.createObjectURL(blob));
       setCandidates([blobUrl]); setPick(0); setDescribed(""); setJob({ id: item.id, attempts: item.attempts }); setName(item.name || "");
-      setHairBehind(typeof item.game?.behind === "boolean" ? item.game.behind : null);
-      await openFit(blobUrl, item.game?.fits, item.game?.headIndex);
+      // 第一次對位（還沒存過）：非設計師依髮型挑預設的原頭像——短髮用 Machi、長髮用 Leona；長髮預設頭放在身體後面
+      const first = !item.game && kind === "head" && !lockedHead;
+      const long = first && isLongHair(item.description);
+      setHairBehind(typeof item.game?.behind === "boolean" ? item.game.behind : first ? long : null);
+      await openFit(blobUrl, item.game?.fits, item.game?.headIndex ?? (first ? (long ? HEAD_LONG_BASE : HEAD_SHORT_BASE) : undefined));
     } catch (cause) { setError(cause instanceof Error ? cause.message : "無法開啟編輯"); }
   }
   useEffect(() => { if (!loading) return; const t = window.setInterval(() => setElapsed((n) => n + 1), 1000); return () => window.clearInterval(t); }, [loading]);
