@@ -218,8 +218,11 @@ export default function OutfitPage() {
         const id = (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
-        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } }> };
-        if (!cancelled) { setSelectedHead(imgs); setSelectedHeadId(id); { const hi = list.heads?.find((h) => h.id === id)?.game?.headIndex; setSelectedHeadIdx(typeof hi === "number" ? hi : null); } setSelectedPads(list.heads?.find((h) => h.id === id)?.game?.pads || null); const behind = list.heads?.find((h) => h.id === id)?.game?.behind; setSelectedBehind(typeof behind === "boolean" ? behind : null); }
+        // 對位資料（外擴、原頭像格子、前後）：先找自己的製作單（個人形象的頭像沒有設計師名字，不在公開清單裡），再找公開清單
+        const mine = await fetch("/api/outfit/items", { headers: authHeaders(), cache: "no-store" }).then((r) => r.json()).catch(() => ({})) as { items?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } | null }> };
+        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()).catch(() => ({})) as { heads?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } }> };
+        const game = mine.items?.find((h) => h.id === id)?.game || list.heads?.find((h) => h.id === id)?.game || null;
+        if (!cancelled) { setSelectedHead(imgs); setSelectedHeadId(id); { const hi = game?.headIndex; setSelectedHeadIdx(typeof hi === "number" ? hi : null); } setSelectedPads(game?.pads || null); const behind = game?.behind; setSelectedBehind(typeof behind === "boolean" ? behind : null); }
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
@@ -468,8 +471,8 @@ export default function OutfitPage() {
         const blobUrl = await fetch(outfit.bodyUrl, { headers: authHeaders() }).then((r) => r.ok ? r.blob() : Promise.reject(new Error("img"))).then((blob) => URL.createObjectURL(blob));
         const body = await prepareBody(blobUrl);
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${persona.headItemId}/${view}.png?t=${Date.now()}`)));
-        const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][] } }> };
-        const headGame = list.heads?.find((h) => h.id === persona.headItemId)?.game, behind = headGame?.behind;
+        const mine = await fetch("/api/outfit/items", { headers: authHeaders(), cache: "no-store" }).then((r) => r.json()) as { items?: Array<{ id: string; game?: { behind?: boolean; pads?: number[][]; headIndex?: number } | null }> };
+        const headGame = mine.items?.find((h) => h.id === persona.headItemId)?.game, behind = headGame?.behind;
         const png = composeAvatar(body, headsImg, outfit.head || defaultHeadFit(0), imgs, typeof behind === "boolean" ? behind : null, headGame?.pads || null);
         const response = await fetch("/api/outfit/persona/avatar", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ png, lookKey: `persona-${outfit.updatedAt}`.replace(/[^\w:|.@-]/g, "-") }) });
         if (response.ok) { const saved = await response.json().catch(() => ({})) as { changed?: boolean }; try { sessionStorage.setItem(`persona-snap:${persona.outfitItemId}:${outfit.updatedAt}`, "1"); } catch { /* 略過 */ } if (saved.changed) { try { window.parent?.postMessage({ type: "emcPersonaDone" }, "*"); } catch { /* 略過 */ } } }
