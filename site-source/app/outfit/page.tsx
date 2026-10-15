@@ -158,7 +158,8 @@ export default function OutfitPage() {
   // 管理者與 Machi：可以看、編輯全部人員的「我的服裝」
   const [libScope, setLibScope] = useState<"mine" | "all">("mine");
   const [libOwner, setLibOwner] = useState("");
-  const [fitOwner, setFitOwner] = useState("");   // 正在編輯別人的服裝時，拼的是那個人選用的頭像
+  const [fitOwner, setFitOwner] = useState("");
+  const [returnOutfitId, setReturnOutfitId] = useState("");   // 從服裝拼接按「返回頭像對位」時記下，頭像存好後回到同一件服裝   // 正在編輯別人的服裝時，拼的是那個人選用的頭像
   // 個人形象精靈（企劃／專案人員第一次進來建立角色；管理員可用網址 #persona=1 測試）
   const [persona, setPersona] = useState<PersonaState | null>(null);
   const [personaDept, setPersonaDept] = useState("");
@@ -552,7 +553,7 @@ export default function OutfitPage() {
         onFinished={() => { setWizardView(false); setPersonaHeadOpen(""); setMode("outfit"); void loadLibrary(); }} /> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
       <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ["cap", "帽子", <Crown key="c" size={15} />], ["glasses", "眼鏡", <Glasses key="g" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
-      {mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); }} /> : <>
+      {mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
@@ -604,7 +605,7 @@ export default function OutfitPage() {
               <label className="fit-default"><input type="checkbox" checked={fitDefault} onChange={(e) => setFitDefault(e.target.checked)} /> 設為我的預設服裝</label>
               <div className="fit-buttons">
                 <button className="generate" disabled={fitBusy || !fitName.trim()} onClick={() => void saveFit(job?.status !== "completed")}>{fitBusy ? <LoaderCircle size={18} className="spin" /> : <Check size={18} />}<span>{job?.status === "completed" ? "儲存修改" : "完成服裝製作"}</span></button>
-                <button className="ghost" disabled={fitBusy} onClick={() => { if (persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed)) { setPersonaHeadOpen(persona.headItemId); setMode("head"); scrollStudioTop(); } else setPhase("make"); }}>{persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed) ? "返回頭像對位" : "返回上一步"}</button>
+                <button className="ghost" disabled={fitBusy} onClick={() => { const headId = persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed) ? persona.headItemId : (!fitOwner ? selectedHeadId : ""); if (headId) { setReturnOutfitId(job?.id || ""); setPersonaHeadOpen(headId); setMode("head"); scrollStudioTop(); } else setPhase("make"); }}>{(persona && job && job.id === persona.outfitItemId && persona.headItemId && (showWizard || !persona.completed)) || (!fitOwner && selectedHeadId) ? "返回頭像對位" : "返回上一步"}</button>
               </div>
               {job?.status === "draft" && <button className="refit" disabled={loading || fitBusy || !canRegenerate} onClick={() => void generate(false, job.id)}><Sparkles size={14} />對這一輪三組都不滿意？再生成三組（再扣 {fmtCoin(regenCost)} 點，仍是同一件）</button>}
             </div>
