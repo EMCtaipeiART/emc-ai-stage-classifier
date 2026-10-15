@@ -3,6 +3,7 @@ import { currentUser } from "@/lib/access";
 import { designApi, editorTokenOf, whoami } from "@/lib/coins-client";
 import { createDraft, getItem, setGeneration } from "@/lib/outfit-items";
 import { saveOutfitRecord } from "@/lib/outfit-history";
+import { FREE_RUN_LIMIT, takeFreeRun } from "@/lib/persona";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 import { buildHeadPrompt, DESCRIBE_HEAD_INSTRUCTIONS } from "@/lib/head-spec";
@@ -136,6 +137,13 @@ export async function POST(request: Request) {
   // 平台幣：要用設計系統帳號（有 token）才能生成；先扣 200 點，沒有成功就退回。管理員（沒有設計師身分）不扣點。
   const editorToken = editorTokenOf(request);
   if (!editorToken) return Response.json({ error: "請從設計需求系統登入，再從左側選單的「服裝」進入這個頁面；生成需要設計師帳號的平台幣。", reason: "LOGIN_REQUIRED" }, { status: 401 });
+  // 個人形象（企劃／專案人員第一次建立角色，測試期）：用個人照生成頭像與身體，不扣平台幣，每個帳號有免費次數上限
+  const onboarding = String(form.get("onboarding")) === "1" && (itemKind === "head" || itemKind === "outfit") && !refit;
+  const onboardingWho = onboarding ? await whoami(request) : null;
+  if (onboarding) {
+    if (!onboardingWho) return Response.json({ error: "登入已過期，請回設計需求系統重新登入後再進入。", reason: "TOKEN_EXPIRED" }, { status: 401 });
+    if (!(await takeFreeRun(onboardingWho.account, onboardingWho.name || onboardingWho.account))) return Response.json({ error: `測試期的免費生成次數已用完（每個帳號 ${FREE_RUN_LIMIT} 次）。`, reason: "FREE_LIMIT" }, { status: 429 });
+  }
   const generationId = crypto.randomUUID();
   // 同一件服裝重新生成（還沒完成的製作單）：只扣 100 點，結果換成這次的圖；沒帶 itemId 就是新的一件（200 點）
   const itemId = String(form.get("itemId") || "");
@@ -147,7 +155,9 @@ export async function POST(request: Request) {
     attempt = item.attempts + 1;
   }
   const regenerate = Boolean(itemId);
-  const reserve = await designApi("coinReserve", { editorToken, ref: generationId, regenerate }, true);
+  const reserve = onboarding && onboardingWho
+    ? { ok: true, exempt: true, charged: 0, balance: 0, name: onboardingWho.name, account: onboardingWho.account } as { ok: boolean; exempt: boolean; charged: number; balance: number; name: string; account: string; error?: string }
+    : await designApi("coinReserve", { editorToken, ref: generationId, regenerate }, true);
   if (!reserve.ok) return Response.json({ error: reserve.error === "TOKEN_EXPIRED" ? "登入已過期，請回設計需求系統重新登入後再進入。" : (reserve.error || "平台幣扣款失敗"), reason: reserve.error === "TOKEN_EXPIRED" ? "TOKEN_EXPIRED" : "COIN" }, { status: reserve.error === "TOKEN_EXPIRED" ? 401 : 402 });
   const coin = { exempt: Boolean(reserve.exempt), charged: Number(reserve.charged) || 0, balance: Number(reserve.balance) || 0, holder: String(reserve.name || "") };
   const userId = coin.holder || String(reserve.account || (await currentUser(request)));

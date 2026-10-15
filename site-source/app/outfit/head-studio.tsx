@@ -101,7 +101,7 @@ function buildAssets(kind: Kind, crops: HTMLCanvasElement[], headIndex: number, 
   return { views: outputs.map((c) => ({ w: c.width, h: c.height })), viewImages: outputs.map((c) => c.toDataURL("image/png")), cover: cover.toDataURL("image/png"), pads: crops.map((_, view) => padFor(kind, HEADS[headIndex][view] as Rect)) };
 }
 
-export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind: Kind; token: string; wallet: Wallet | null; reloadWallet: () => void }) {
+export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpenId = "" }: { kind: Kind; token: string; wallet: Wallet | null; reloadWallet: () => void; autoOpenId?: string }) {
   const K = KINDS[kind], viewCount = K.views, viewIndexes = Array.from({ length: viewCount }, (_, k) => k);
   const auth = (): Record<string, string> => token ? { "x-emc-editor-token": token } : {};
   const [description, setDescription] = useState("");
@@ -131,6 +131,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
   // 帽子、眼鏡對位用「你目前選用的頭像」（元宇宙造型裡選的自訂頭像；沒選就是原本的頭）
   const [headImgs, setHeadImgs] = useState<HTMLImageElement[] | null>(null);
   const [headLabel, setHeadLabel] = useState("原本的頭");
+  const autoOpened = useRef(false);
   const fitCanvas = useRef<HTMLCanvasElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const previews = useMemo(() => files.map((file) => ({ file, url: URL.createObjectURL(file) })), [files]);
@@ -233,7 +234,10 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet }: { kind
     try {
       const response = await fetch("/api/outfit/items", { headers: auth() });
       const payload = await response.json() as { items?: HeadItem[] };
-      setLibrary((payload.items || []).filter((item) => item.kind === kind));
+      const list = (payload.items || []).filter((item) => item.kind === kind);
+      setLibrary(list);
+      const target = autoOpenId && !autoOpened.current ? list.find((item) => item.id === autoOpenId) : null;
+      if (target) { autoOpened.current = true; void editItem(target); }   // 個人形象精靈：直接打開要對位的那一件
     } catch { /* 下次再讀 */ }
   }
   useEffect(() => { void loadLibrary(); }, [token]);

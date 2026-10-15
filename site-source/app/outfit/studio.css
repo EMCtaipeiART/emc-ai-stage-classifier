@@ -160,3 +160,22 @@ html:has(.studio.embed),html:has(.studio.embed) body{background:transparent!impo
 .studio.embed main{max-width:none;padding-left:5%;padding-right:5%}
 html:has(.studio.embed){overflow:hidden}
 .studio.embed{min-height:0}
+
+/* 個人形象精靈（企劃／專案人員第一次建立角色） */
+.persona{max-width:860px;margin:0 auto;padding:8px 0 24px}
+.persona-head{display:flex;gap:14px;align-items:flex-start;margin-bottom:14px}.persona-head h2{margin:0 0 4px;font-size:22px}.persona-head p{margin:0;color:var(--muted,#667);line-height:1.6}
+.persona-steps{display:flex;gap:8px;flex-wrap:wrap;list-style:none;padding:0;margin:0 0 16px}
+.persona-steps li{display:flex;align-items:center;gap:7px;padding:6px 12px;border-radius:99px;border:1px solid rgba(120,130,150,.35);font-size:13px;opacity:.7}
+.persona-steps li span{display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:rgba(120,130,150,.25);font-size:12px}
+.persona-steps li.now{opacity:1;border-color:#159e31;font-weight:700}.persona-steps li.now span{background:#159e31;color:#fff}.persona-steps li.done{opacity:1}.persona-steps li.done span{background:#159e31;color:#fff}
+.persona-card{display:grid;gap:12px;padding:18px;border-radius:16px;border:1px solid rgba(120,130,150,.3);background:rgba(255,255,255,.04)}
+.persona-hint{margin:0;color:var(--muted,#667);font-size:13px;line-height:1.6}
+.persona-row{display:grid;gap:8px}.persona-picks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.persona-picks button{padding:6px;border-radius:12px;border:2px solid rgba(120,130,150,.3);background:rgba(255,255,255,.06);cursor:pointer}.persona-picks button.on{border-color:#159e31;box-shadow:0 0 0 2px rgba(21,158,49,.25)}
+.persona-picks img{display:block;width:100%;height:220px;object-fit:contain}
+.persona-todo{display:flex;align-items:center;gap:12px;padding:12px;border-radius:12px;border:1px solid rgba(120,130,150,.3)}
+.persona-todo>span{display:grid;place-items:center;flex:0 0 auto;width:26px;height:26px;border-radius:50%;background:rgba(120,130,150,.3);font-weight:700}.persona-todo.done>span{background:#159e31;color:#fff}
+.persona-todo>div{flex:1}.persona-todo small{display:block;color:var(--muted,#667);margin-top:2px}
+.persona-todo button{padding:8px 14px;border-radius:10px;border:0;background:#159e31;color:#fff;font-weight:700;cursor:pointer}.persona-todo button:disabled{opacity:.4;cursor:not-allowed}
+.persona-banner{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:rgba(21,158,49,.12);border:1px solid rgba(21,158,49,.4);font-size:13px}
+.persona-banner button{padding:6px 12px;border-radius:99px;border:1px solid #159e31;background:transparent;color:inherit;cursor:pointer}

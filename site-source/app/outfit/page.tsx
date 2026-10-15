@@ -4,6 +4,7 @@ import { ChangeEvent, DragEvent, ReactElement, useEffect, useMemo, useRef, useSt
 import "./studio.css";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Crown, Glasses, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import HeadStudio from "./head-studio";
+import PersonaWizard, { type PersonaState } from "./persona-wizard";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
@@ -141,6 +142,13 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 
 export default function OutfitPage() {
   const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses">("outfit");
+  // 個人形象精靈（企劃／專案人員第一次進來建立角色；管理員可用網址 #persona=1 測試）
+  const [persona, setPersona] = useState<PersonaState | null>(null);
+  const [personaDept, setPersonaDept] = useState("");
+  const [wizardView, setWizardView] = useState(true);
+  const [personaHeadOpen, setPersonaHeadOpen] = useState("");
+  const personaForced = typeof location !== "undefined" && /[#&]persona=1/.test(location.hash);
+  const showWizard = Boolean(persona && !persona.completed && (/企劃部|專案部/.test(personaDept) || personaForced));
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
@@ -150,6 +158,10 @@ export default function OutfitPage() {
   const [activeId, setActiveId] = useState("");
   const [bg, setBg] = useState<Bg>("check");
   const [token, setToken] = useState("");
+  useEffect(() => {
+    if (!token) return;
+    fetch("/api/outfit/persona", { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json() as Promise<{ persona?: PersonaState; department?: string }>).then((p) => { if (p.persona) { setPersona(p.persona); setPersonaDept(p.department || ""); } }).catch(() => undefined);
+  }, [token]);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [walletError, setWalletError] = useState("");
   const [transfer, setTransfer] = useState({ to: "", amount: "", memo: "" });
@@ -184,7 +196,7 @@ export default function OutfitPage() {
     (async () => {
       try {
         const state = await fetch("/api/outfit/look", { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
-        const id = /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
+        const id = (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
         const list = await fetch("/api/public/outfits", { cache: "no-store" }).then((r) => r.json()) as { heads?: Array<{ id: string; game?: { behind?: boolean } }> };
@@ -192,7 +204,7 @@ export default function OutfitPage() {
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
-  }, [token]);
+  }, [token, persona?.headItemId, persona?.step]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
   useEffect(() => {
     if (phase !== "fit" || !fitBody || !headsImg || !fitCanvas.current) return;
@@ -458,8 +470,13 @@ export default function OutfitPage() {
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
+      {showWizard && wizardView && persona ? <PersonaWizard token={token} persona={persona} setPersona={setPersona} departmentLabel={personaDept || "你的部門"}
+        onOpenHead={(id) => { setPersonaHeadOpen(id); setMode("head"); setWizardView(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onOpenOutfit={async (id) => { setMode("outfit"); setWizardView(false); try { const list = await fetch("/api/outfit/items", { headers: authHeaders() }).then((r) => r.json()) as { items?: Item[] }; const target = list.items?.find((entry) => entry.id === id); if (target) await openItem(target); } catch { /* 找不到就留在服裝頁 */ } }}
+        onFinished={() => { setWizardView(false); setPersonaHeadOpen(""); setMode("outfit"); void loadLibrary(); }} /> : <>
+      {showWizard && <div className="persona-banner"><span>你正在建立角色：完成頭像對位與身體拼接後，這個流程就結束。</span><button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></div>}
       <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ["cap", "帽子", <Crown key="c" size={15} />], ["glasses", "眼鏡", <Glasses key="g" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
-      {mode !== "outfit" ? <HeadStudio key={mode} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} /> : <>
+      {mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
@@ -567,6 +584,7 @@ export default function OutfitPage() {
         <p className="history-total">你的最近 {wallet.recent.length} 筆紀錄（完整帳本由管理員保存，每筆都有簽章，無法事後修改）</p>
         {!wallet.recent.length ? <p className="empty-note">還沒有紀錄。完成案件後，積分會自動記入。</p> : <div className="records">{wallet.recent.map((entry) => <article key={entry.seq} className="coin-entry"><time>{formatTime(entry.at)}</time><strong>{entry.label}{entry.counterparty ? `（${entry.kind === "transfer_in" ? "來自" : "給"} ${entry.counterparty}）` : ""}</strong><span className="coin-memo">{entry.memo}</span><b className={entry.amount >= 0 ? "plus" : "minus"}>{entry.amount >= 0 ? "+" : ""}{fmtCoin(entry.amount)}</b></article>)}</div>}
       </section>}
+      </>}
       <footer><span>PIXEL OFFICE / CREATIVE TOOLS</span><span>每一套，都有你的風格。</span></footer>
     </main>
   </div>;
