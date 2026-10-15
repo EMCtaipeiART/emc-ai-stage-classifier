@@ -109,7 +109,7 @@ export default function PersonaWizard({ token, persona, setPersona, onOpenHead, 
   }
 
   return <section className="persona">
-    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>每人只有一次生成機會，目前不扣平台幣</b>，請先選好照片再生成。</p></div></div>
+    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>建立你的角色</h2><p>{departmentLabel}同仁第一次使用：上傳一張個人照，生成頭像與身體各三個，挑好後拼接成你的角色。<b>免費贈送一次機會（不扣平台幣）</b>，請先選好照片再生成。</p></div></div>
     <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} className={index < stepIndex ? "done" : index === stepIndex ? "now" : ""}><span>{index < stepIndex ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="error" role="alert">{error}</div>}
 
