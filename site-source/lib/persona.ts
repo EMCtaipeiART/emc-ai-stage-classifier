@@ -48,3 +48,9 @@ export async function resetPersona(account: string, admin: boolean) {
   if (!row) return;
   await env.DB!.prepare("UPDATE persona_profiles SET head_item_id = '', outfit_item_id = '', step = 'upload', completed_at = NULL, free_runs = CASE WHEN ? = 1 THEN 0 ELSE free_runs END, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(admin ? 1 : 0, account).run();
 }
+
+/** 這次生成失敗：把免費次數還回去（失敗不該算使用）。 */
+export async function refundFreeRun(account: string) {
+  await ensurePersonaTable();
+  await env.DB!.prepare("UPDATE persona_profiles SET free_runs = MAX(0, free_runs - 1) WHERE account = ?").bind(account).run();
+}

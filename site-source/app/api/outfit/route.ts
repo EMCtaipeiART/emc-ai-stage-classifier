@@ -3,7 +3,7 @@ import { currentUser } from "@/lib/access";
 import { designApi, editorTokenOf, whoami } from "@/lib/coins-client";
 import { createDraft, getItem, setGeneration } from "@/lib/outfit-items";
 import { saveOutfitRecord } from "@/lib/outfit-history";
-import { FREE_RUN_LIMIT, takeFreeRun } from "@/lib/persona";
+import { FREE_RUN_LIMIT, refundFreeRun, takeFreeRun } from "@/lib/persona";
 import { OUTFIT_TEMPLATE_B64 } from "@/lib/outfit-template";
 import { OUTFIT_REFERENCE_B64 } from "@/lib/outfit-reference";
 import { buildHeadPrompt, DESCRIBE_HEAD_INSTRUCTIONS } from "@/lib/head-spec";
@@ -171,6 +171,7 @@ export async function POST(request: Request) {
       const seconds = () => Math.round((Date.now() - startedAt) / 100) / 10;
       // 每次生成（成功或失敗）都記一筆；記錄失敗不影響生成結果
       const fail = async (message: string) => {
+        if (onboarding && onboardingWho) await refundFreeRun(onboardingWho.account).catch(() => undefined);   // 測試期：失敗不算免費次數
         // 沒有成功：先把這次扣的平台幣退回（只有這個站能退），再記錄
         let refunded = false;
         if (!coin.exempt) {
