@@ -36,12 +36,15 @@ const CONSISTENCY = `All three views must show the SAME outfit consistently (sam
 
 /** 組出送給 OpenAI 的提示詞。hasPhoto：使用者另外附了服裝參考圖（第二張起）。 */
 export type OutfitBase = "template" | "sheet";
+// 只有半身照、或描述沒寫到下半身時：一律補齊下半身，不能畫出只有上身的人物。
+const COMPLETE_OUTFIT = "COMPLETE OUTFIT: every figure must wear a complete outfit from the neck down to the shoes - always draw trousers or a skirt and shoes on both legs. If the description or photo does not show the lower body, invent simple bottoms and shoes in colors that match the visible clothing. Never draw a figure that ends at the waist or hips, never leave bare legs or missing feet.";
+
 export function buildOutfitPrompt(description: string, hasPhoto: boolean, mode: OutfitBase = "sheet") {
   const outfit = description.trim() || "(no text description - copy the outfit from the attached photo)";
   const source = hasPhoto
     ? `NEW OUTFIT: the clothing shown in the additional attached image(s) after the first image. Reproduce that clothing (colors, garment types, graphics) on the template figures. Extra notes from the user: ${outfit}`
     : `NEW OUTFIT: ${outfit}`;
-  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, VIEW_RULES, BODY_LOCK, MARGIN_RULE, CRISP_STYLE, CONSISTENCY].join("\n\n");
+  return [mode === "sheet" ? SHEET_RULES : TEMPLATE_RULES, source, COMPLETE_OUTFIT, VIEW_RULES, BODY_LOCK, MARGIN_RULE, CRISP_STYLE, CONSISTENCY].join("\n\n");
 }
 
 /** 比例不對時：把上一張結果當成「衣服」，重新套到標準身體上。 */
