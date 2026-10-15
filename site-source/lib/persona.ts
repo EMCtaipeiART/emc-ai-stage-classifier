@@ -26,7 +26,7 @@ export async function getPersona(account: string): Promise<PersonaRow | null> {
 export async function upsertPersona(account: string, name: string, patch: { headItemId?: string; outfitItemId?: string; step?: string; complete?: boolean }) {
   await ensurePersonaTable();
   const row = await getPersona(account);
-  if (!row) await env.DB!.prepare("INSERT INTO persona_profiles (account, name) VALUES (?, ?)").bind(account, name).run();
+  if (!row) await env.DB!.prepare("INSERT OR IGNORE INTO persona_profiles (account, name) VALUES (?, ?)").bind(account, name).run();
   await env.DB!.prepare("UPDATE persona_profiles SET name = CASE WHEN ? != '' THEN ? ELSE name END, head_item_id = COALESCE(?, head_item_id), outfit_item_id = COALESCE(?, outfit_item_id), step = COALESCE(?, step), completed_at = CASE WHEN ? = 1 AND completed_at IS NULL THEN CURRENT_TIMESTAMP ELSE completed_at END, updated_at = CURRENT_TIMESTAMP WHERE account = ?")
     .bind(name, name, patch.headItemId ?? null, patch.outfitItemId ?? null, patch.step ?? null, patch.complete ? 1 : 0, account).run();
 }
@@ -35,7 +35,7 @@ export async function upsertPersona(account: string, name: string, patch: { head
 export async function takeFreeRun(account: string, name: string): Promise<boolean> {
   await ensurePersonaTable();
   const row = await getPersona(account);
-  if (!row) await env.DB!.prepare("INSERT INTO persona_profiles (account, name) VALUES (?, ?)").bind(account, name).run();
+  if (!row) await env.DB!.prepare("INSERT OR IGNORE INTO persona_profiles (account, name) VALUES (?, ?)").bind(account, name).run();
   if ((row?.free_runs || 0) >= FREE_RUN_LIMIT) return false;
   await env.DB!.prepare("UPDATE persona_profiles SET free_runs = free_runs + 1, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(account).run();
   return true;

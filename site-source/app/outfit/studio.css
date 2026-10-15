@@ -179,3 +179,4 @@ html:has(.studio.embed){overflow:hidden}
 .persona-todo button{padding:8px 14px;border-radius:10px;border:0;background:#159e31;color:#fff;font-weight:700;cursor:pointer}.persona-todo button:disabled{opacity:.4;cursor:not-allowed}
 .persona-banner{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:rgba(21,158,49,.12);border:1px solid rgba(21,158,49,.4);font-size:13px}
 .persona-banner button{padding:6px 12px;border-radius:99px;border:1px solid #159e31;background:transparent;color:inherit;cursor:pointer}
+.persona-banner-actions{display:flex;gap:8px;flex-wrap:wrap}
