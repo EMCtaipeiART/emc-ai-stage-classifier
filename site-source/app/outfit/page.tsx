@@ -159,6 +159,8 @@ export default function OutfitPage() {
   const [libScope, setLibScope] = useState<"mine" | "all">("mine");
   const [libOwner, setLibOwner] = useState("");
   const [fitOwner, setFitOwner] = useState("");
+  const [headChoice, setHeadChoice] = useState<"auto" | "base" | string>("auto");   // 拼接時用哪顆頭：auto＝元宇宙目前選用的、base＝原本的頭、或自己做的某顆頭像
+  const [myHeads, setMyHeads] = useState<Array<{ id: string; name: string }>>([]);
   const [returnOutfitId, setReturnOutfitId] = useState("");   // 從服裝拼接按「返回頭像對位」時記下，頭像存好後回到同一件服裝   // 正在編輯別人的服裝時，拼的是那個人選用的頭像
   // 個人形象精靈（企劃／專案人員第一次進來建立角色；管理員可用網址 #persona=1 測試）
   const [persona, setPersona] = useState<PersonaState | null>(null);
@@ -219,7 +221,7 @@ export default function OutfitPage() {
     (async () => {
       try {
         const state = await fetch(`/api/outfit/look${fitOwner ? `?name=${encodeURIComponent(fitOwner)}` : ""}`, { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
-        const id = (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
+        const id = headChoice === "base" ? "" : headChoice !== "auto" ? headChoice : (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
         // 對位資料（外擴、原頭像格子、前後）：先找自己的製作單（個人形象的頭像沒有設計師名字，不在公開清單裡），再找公開清單
@@ -230,7 +232,7 @@ export default function OutfitPage() {
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
-  }, [token, persona?.headItemId, persona?.step, headReload, fitOwner]);
+  }, [token, persona?.headItemId, persona?.step, headReload, fitOwner, headChoice]);
   // 拼接用的原頭像格子要跟頭像對位時一樣（自訂頭像）
   useEffect(() => { if (selectedHeadIdx !== null && selectedHead && fit.headIndex !== selectedHeadIdx) setFit((current) => ({ ...current, headIndex: selectedHeadIdx })); }, [selectedHeadIdx, selectedHead, phase, fitBody]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
@@ -390,6 +392,7 @@ export default function OutfitPage() {
       const payload = await response.json() as { items?: Item[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取我的服裝失敗");
       setLibrary((payload.items || []).filter((entry) => { const kind = (entry as { kind?: string }).kind; return !kind || kind === "outfit"; }));
+      setMyHeads((payload.items || []).filter((entry) => (entry as { kind?: string }).kind === "head" && entry.status === "completed" && isMine(entry) && entry.published).map((entry) => ({ id: entry.id, name: entry.name })));
     } catch (cause) { setLibraryNote(cause instanceof Error ? cause.message : "讀取我的服裝失敗"); }
   }
   useEffect(() => { void loadLibrary(); }, [token, libScope]);
@@ -436,6 +439,7 @@ export default function OutfitPage() {
       setItems((current) => [generated, ...current.filter((entry) => entry.id !== generated.id)].slice(0, 8)); setActiveId(generated.id);
       const owner = isMine(item) ? "" : (item.ownerName || "");
       setFitOwner(owner);
+      setHeadChoice("auto");
       enterFit(body, item.head || defaultHeadFit(ownHeadIndex(owner)), item.name, item.isDefault, owner);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "打開失敗"); }
   }
@@ -591,7 +595,8 @@ export default function OutfitPage() {
             <div className={`canvas fit-canvas ${bg}`}><canvas ref={fitCanvas} className="sheet" /></div>
             <div className="preview-bottom"><span>預設用接近遊戲裡的大小預覽；頭像是低解析的遊戲素材，放大檢查位置時會顯得比較糊，這是正常的。 <button className="zoom-toggle" onClick={() => setFitZoom(fitZoom === 1 ? 1.6 : 1)}>{fitZoom === 1 ? "放大檢查" : "回到實際大小"}</button></span><div className="bg-controls" aria-label="預覽背景">{(["check", "light", "dark"] as Bg[]).map((x) => <button key={x} className={bg === x ? "active" : ""} onClick={() => setBg(x)} aria-label={`切換${x === "check" ? "棋盤格" : x === "light" ? "淺色" : "深色"}背景`} style={{ background: x === "dark" ? "#292b28" : x === "light" ? "#fff" : "#d7dcd2" }} />)}</div></div>
             <div className="fit-controls">
-              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.pixelDesigner ? `${selectedHead ? "目前選用的自訂頭像" : `${HEAD_NAMES[fit.headIndex]}（本人，原本的頭）`} · 自己做的服裝只有自己能穿，所以固定用自己的頭` : selectedHead ? "你的自訂頭像 · 自己做的服裝只有自己能穿" : "預覽用（沒有選定頭像，這件服裝不會進元宇宙）"}</div></div>
+              <div className="fit-row"><span>頭像</span><div className="fit-own">{wallet?.pixelDesigner && !selectedHead && headChoice === "auto" ? `${HEAD_NAMES[fit.headIndex]}（本人，原本的頭）` : selectedHead ? "自訂頭像" : "原本的頭（預覽用）"}</div></div>
+              {!fitOwner && myHeads.length > 0 && <div className="fit-row"><span>拼接用的頭</span><div className="chips"><button className={headChoice === "auto" ? "on" : ""} onClick={() => setHeadChoice("auto")}>目前選用的</button><button className={headChoice === "base" ? "on" : ""} onClick={() => setHeadChoice("base")}>原本的頭</button>{myHeads.map((head) => <button key={head.id} className={headChoice === head.id ? "on" : ""} onClick={() => setHeadChoice(head.id)}>{head.name || "（未命名）"}</button>)}{selectedHeadId && <button onClick={() => { setReturnOutfitId(job?.id || ""); setPersonaHeadOpen(selectedHeadId); setMode("head"); scrollStudioTop(); }}>編輯這顆頭像</button>}</div></div>}
               {selectedHead && <div className="fit-row"><span>頭的前後</span><div className="chips">{([["自動（依髮型）", "auto"], ["頭在身體前", "front"], ["頭在身體後", "back"]] as Array<[string, "auto" | "front" | "back"]>).map(([lab, v]) => <button key={v} className={behindChoice === v ? "on" : ""} onClick={() => setBehindChoice(v)}>{lab}</button>)}</div></div>}
               <div className="fit-row"><span>調整角度</span><div className="chips">{([["全部一起", 3], ["正面", 0], ["側面", 1], ["背面", 2]] as Array<[string, 0 | 1 | 2 | 3]>).map(([label, value]) => <button key={label} className={fitTarget === value ? "on" : ""} onClick={() => setFitTarget(value)}>{label}</button>)}</div></div>
               <div className="fit-row"><span>上下</span><div className="nudge"><button aria-label="頭往上" onClick={() => setFitValue("dy", fitValue("dy") - 1)}><ArrowUp size={15} /></button><input type="range" min={-80} max={80} step={1} value={fitValue("dy")} onChange={(e) => setFitValue("dy", Number(e.target.value))} aria-label="頭的上下位置" /><button aria-label="頭往下" onClick={() => setFitValue("dy", fitValue("dy") + 1)}><ArrowDown size={15} /></button><b>{fitValue("dy")}</b></div></div>
