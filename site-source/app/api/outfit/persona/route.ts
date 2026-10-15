@@ -1,5 +1,5 @@
 import { whoami } from "@/lib/coins-client";
-import { getPersona, personaPublic, upsertPersona } from "@/lib/persona";
+import { getPersona, personaPublic, resetPersona, upsertPersona } from "@/lib/persona";
 import { getItem } from "@/lib/outfit-items";
 
 /** 我的個人形象進度（企劃／專案人員第一次建立角色用）。 */
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const who = await whoami(request);
   if (!who) return Response.json({ error: "請從設計需求系統登入後進入這個頁面。" }, { status: 401 });
-  const body = await request.json().catch(() => ({})) as { headItemId?: string; outfitItemId?: string; step?: string; complete?: boolean };
+  const body = await request.json().catch(() => ({})) as { headItemId?: string; outfitItemId?: string; step?: string; complete?: boolean; reset?: boolean };
+  if (body.reset) { await resetPersona(who.account, who.admin); return Response.json({ ok: true, persona: personaPublic(await getPersona(who.account)) }); }   // 測試頁用：清掉自己的進度
   for (const id of [body.headItemId, body.outfitItemId]) {
     if (!id) continue;
     const item = await getItem(id);

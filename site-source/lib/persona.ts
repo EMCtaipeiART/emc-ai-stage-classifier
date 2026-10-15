@@ -40,3 +40,11 @@ export async function takeFreeRun(account: string, name: string): Promise<boolea
   await env.DB!.prepare("UPDATE persona_profiles SET free_runs = free_runs + 1, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(account).run();
   return true;
 }
+
+/** 測試頁用：清掉自己的進度（頭像與服裝製作單不動）；免費次數只有管理員重置時才歸零，避免一般帳號用重新開始繞過上限。 */
+export async function resetPersona(account: string, admin: boolean) {
+  await ensurePersonaTable();
+  const row = await getPersona(account);
+  if (!row) return;
+  await env.DB!.prepare("UPDATE persona_profiles SET head_item_id = '', outfit_item_id = '', step = 'upload', completed_at = NULL, free_runs = CASE WHEN ? = 1 THEN 0 ELSE free_runs END, updated_at = CURRENT_TIMESTAMP WHERE account = ?").bind(admin ? 1 : 0, account).run();
+}
