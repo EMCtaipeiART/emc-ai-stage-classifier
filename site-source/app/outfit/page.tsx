@@ -19,7 +19,7 @@ type Generated = { id: string; candidates: string[]; pick: number; described?: s
 const EXAMPLES = ["紅色棒球外套、白 T、黑色工作褲、白色厚底球鞋", "橘色連帽衫、淺色寬牛仔褲、黑色高筒帆布鞋", "灰色針織背心、白襯衫、卡其長褲、棕色短靴"];
 type Bg = "check" | "light" | "dark";
 type FitView = { x0: number; y0: number; x1: number; y1: number; neckX: number; neckY: number };
-type Item = { id: string; name: string; status: "draft" | "completed"; isDefault: boolean; description: string; attempts: number; head: HeadFit | null; views: FitView[] | null; createdAt: string; updatedAt: string; completedAt: string | null; coverUrl: string; bodyUrl: string; published: boolean };
+type Item = { ownerName?: string; ownerAccount?: string; id: string; name: string; status: "draft" | "completed"; isDefault: boolean; description: string; attempts: number; head: HeadFit | null; views: FitView[] | null; createdAt: string; updatedAt: string; completedAt: string | null; coverUrl: string; bodyUrl: string; published: boolean };
 type FitBody = { img: HTMLImageElement; views: FitView[] };
 const loadImageSrc = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("圖片載入失敗")); image.src = src; });
 
@@ -95,7 +95,7 @@ async function prepareBody(src: string): Promise<FitBody> {
   return { img, views: views.map((v, i) => ({ ...v, neckX: necks[i].x, neckY: necks[i].y })) };
 }
 type WalletEntry = { seq: number; at: string; kind: string; label: string; amount: number; counterparty: string; memo: string; ref: string };
-type Wallet = { name: string; designer: boolean; pixelDesigner?: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
+type Wallet = { account?: string; name: string; designer: boolean; pixelDesigner?: boolean; admin: boolean; balance: number; spendPerGeneration: number; spendPerRegeneration: number; startDate: string; recent: WalletEntry[]; directory: string[] };
 const TOKEN_KEY = "emcEditorToken";
 const fmtCoin = (value: number) => (Math.round(value * 10) / 10).toLocaleString("zh-TW", { maximumFractionDigits: 1 });
 /** 圖片要帶登入 token 才拿得到（<img> 不能帶標頭），所以用 fetch 取回再顯示。 */
@@ -154,6 +154,10 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 
 export default function OutfitPage() {
   const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses">("outfit");
+  // 管理者與 Machi：可以看、編輯全部人員的「我的服裝」
+  const [libScope, setLibScope] = useState<"mine" | "all">("mine");
+  const [libOwner, setLibOwner] = useState("");
+  const [fitOwner, setFitOwner] = useState("");   // 正在編輯別人的服裝時，拼的是那個人選用的頭像
   // 個人形象精靈（企劃／專案人員第一次進來建立角色；管理員可用網址 #persona=1 測試）
   const [persona, setPersona] = useState<PersonaState | null>(null);
   const [personaDept, setPersonaDept] = useState("");
@@ -212,7 +216,7 @@ export default function OutfitPage() {
     let cancelled = false;
     (async () => {
       try {
-        const state = await fetch("/api/outfit/look", { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
+        const state = await fetch(`/api/outfit/look${fitOwner ? `?name=${encodeURIComponent(fitOwner)}` : ""}`, { headers: { "x-emc-editor-token": token }, cache: "no-store" }).then((r) => r.json()) as { head?: string };
         const id = (persona?.headItemId && persona.step !== "pick" ? persona.headItemId : "") || /^h:([0-9a-f-]{36})$/.exec(state.head || "")?.[1];
         if (!id) return;
         const imgs = await Promise.all([0, 1, 2].map((view) => loadImageSrc(`/api/public/outfits/${id}/${view}.png?t=${Date.now()}`)));
@@ -224,7 +228,7 @@ export default function OutfitPage() {
       } catch { /* 讀不到就用原本的頭 */ }
     })();
     return () => { cancelled = true; };
-  }, [token, persona?.headItemId, persona?.step, headReload]);
+  }, [token, persona?.headItemId, persona?.step, headReload, fitOwner]);
   // 拼接用的原頭像格子要跟頭像對位時一樣（自訂頭像）
   useEffect(() => { if (selectedHeadIdx !== null && selectedHead && fit.headIndex !== selectedHeadIdx) setFit((current) => ({ ...current, headIndex: selectedHeadIdx })); }, [selectedHeadIdx, selectedHead, phase, fitBody]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
@@ -380,17 +384,19 @@ export default function OutfitPage() {
   async function loadLibrary() {
     if (!token) { setLibrary([]); return; }
     try {
-      const response = await fetch("/api/outfit/items", { headers: authHeaders() });
+      const response = await fetch(`/api/outfit/items${libScope === "all" ? "?all=1" : ""}`, { headers: authHeaders() });
       const payload = await response.json() as { items?: Item[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "讀取我的服裝失敗");
       setLibrary((payload.items || []).filter((entry) => { const kind = (entry as { kind?: string }).kind; return !kind || kind === "outfit"; }));
     } catch (cause) { setLibraryNote(cause instanceof Error ? cause.message : "讀取我的服裝失敗"); }
   }
-  useEffect(() => { void loadLibrary(); }, [token]);
+  useEffect(() => { void loadLibrary(); }, [token, libScope]);
+  const canAll = Boolean(wallet && (wallet.admin || wallet.name === "Machi"));
+  const isMine = (item: Item) => !item.ownerAccount || !wallet?.account || item.ownerAccount === wallet.account;
   // 以前（發佈功能上線前）完成的服裝：自動補發佈到 Pixel Office，不用使用者重新儲存
   const publishTried = useRef(new Set<string>());
   useEffect(() => {
-    const pending = library.find((entry) => entry.status === "completed" && !entry.published && entry.bodyUrl && !publishTried.current.has(entry.id));
+    const pending = library.find((entry) => isMine(entry) && entry.status === "completed" && !entry.published && entry.bodyUrl && !publishTried.current.has(entry.id));
     if (!pending || !token) return;
     publishTried.current.add(pending.id);
     (async () => {
@@ -402,9 +408,10 @@ export default function OutfitPage() {
       } catch { /* 下次重新整理再試 */ }
     })();
   }, [library, token]);
-  const ownHeadIndex = () => { const at = HEAD_NAMES.indexOf((wallet?.name || "") as (typeof HEAD_NAMES)[number]); return at >= 0 ? at : 0; };
-  function enterFit(body: FitBody, nextFit: HeadFit, name: string, isDefault: boolean) {
-    setFitBody(body); setFit({ ...nextFit, headIndex: ownHeadIndex() }); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
+  const headIndexOf = (name: string) => { const at = HEAD_NAMES.indexOf(name as (typeof HEAD_NAMES)[number]); return at >= 0 ? at : 0; };
+  const ownHeadIndex = (owner = fitOwner) => headIndexOf(owner || wallet?.name || "");
+  function enterFit(body: FitBody, nextFit: HeadFit, name: string, isDefault: boolean, owner = fitOwner) {
+    setFitBody(body); setFit({ ...nextFit, headIndex: ownHeadIndex(owner) }); setFitTarget(3); setFitName(name); setFitDefault(isDefault); setPhase("fit"); setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   /** 剛生成好 → 進入「套上大頭」。 */
@@ -425,7 +432,9 @@ export default function OutfitPage() {
       setJob({ id: item.id, attempts: item.attempts, status: item.status });
       const generated: Generated = { id: `item-${item.id}-${item.attempts}`, candidates: [blobUrl], pick: 0, image: blobUrl, model: "", quality: "high", seconds: 0, usage: { input: 0, output: 0, total: 0, costUsd: 0 }, label: item.name || item.description.slice(0, 24) || "服裝" };
       setItems((current) => [generated, ...current.filter((entry) => entry.id !== generated.id)].slice(0, 8)); setActiveId(generated.id);
-      enterFit(body, item.head || defaultHeadFit(ownHeadIndex()), item.name, item.isDefault);
+      const owner = isMine(item) ? "" : (item.ownerName || "");
+      setFitOwner(owner);
+      enterFit(body, item.head || defaultHeadFit(ownHeadIndex(owner)), item.name, item.isDefault, owner);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "打開失敗"); }
   }
   function setFitValue(key: "dx" | "dy", value: number) {
@@ -513,7 +522,7 @@ export default function OutfitPage() {
     const blobUrl = URL.createObjectURL(blob); download(blobUrl, `outfit-${item.name || item.id}.png`); setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
   }
   /** 新的一件：不帶製作單編號，扣 200 點。 */
-  function startNew() { setJob(null); setPhase("make"); setFitBody(null); void generate(); }
+  function startNew() { setFitOwner(""); setJob(null); setPhase("make"); setFitBody(null); void generate(); }
   const regenCost = wallet?.spendPerRegeneration ?? 50;
   const canRegenerate = Boolean(job && job.status === "draft" && wallet && (!wallet.designer || wallet.balance >= regenCost));
 
@@ -624,10 +633,11 @@ export default function OutfitPage() {
       </div>
       <section className="history">
         <div className="section-head"><div className="preview-title"><span className="step">03</span><h2>我的服裝</h2></div><button className="refresh" onClick={() => void loadLibrary()}>重新整理</button></div>
+        {canAll && <div className="lib-scope"><button className={libScope === "mine" ? "on" : ""} onClick={() => setLibScope("mine")}>我的</button><button className={libScope === "all" ? "on" : ""} onClick={() => setLibScope("all")}>全部人員</button>{libScope === "all" && <select value={libOwner} onChange={(e) => setLibOwner(e.target.value)} aria-label="依人員篩選"><option value="">所有人</option>{Array.from(new Set(library.map((item) => item.ownerName || item.ownerAccount || "").filter(Boolean))).map((name) => <option key={name} value={name}>{name}</option>)}</select>}</div>}
         <p className="history-total">完成製作的服裝可以設為預設、編輯（調整頭的位置、改名字）或刪除；製作中的可以繼續做。{libraryNote && <b> ｜ {libraryNote}</b>}</p>
-        {!library.length ? <p className="empty-note">還沒有服裝。生成一件、套上大頭並完成製作後，會出現在這裡。</p> : <div className="library">{library.map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
+        {!library.length ? <p className="empty-note">還沒有服裝。生成一件、套上大頭並完成製作後，會出現在這裡。</p> : <div className="library">{library.filter((item) => libScope !== "all" || !libOwner || (item.ownerName || item.ownerAccount) === libOwner).map((item) => <article key={item.id} className={`lib-card ${item.status}`}>
           <div className="lib-thumb"><AuthImage url={item.coverUrl || item.bodyUrl} token={token} alt={item.name || "服裝"} /></div>
-          <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong>{item.isDefault && <span className="badge-default"><Star size={11} /> 預設</span>}<span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span>{item.status === "completed" && <span className={`badge-status ${item.published ? "completed" : ""}`}>{item.published ? "已在元宇宙造型欄" : "發佈中…"}</span>}</div>
+          <div className="lib-main"><div className="lib-title"><strong>{item.name || "（未命名）"}</strong>{libScope === "all" && <span className="badge-status">{item.ownerName || item.ownerAccount || "—"}</span>}{item.isDefault && <span className="badge-default"><Star size={11} /> 預設</span>}<span className={`badge-status ${item.status}`}>{item.status === "completed" ? "已完成" : "製作中"}</span>{item.status === "completed" && <span className={`badge-status ${item.published ? "completed" : ""}`}>{item.published ? "已在元宇宙造型欄" : "發佈中…"}</span>}</div>
             <small>{item.description || "—"}</small><small>更新 {formatTime(item.updatedAt)} · 生成 {item.attempts} 次</small></div>
           <div className="lib-actions"><button onClick={() => void openItem(item)}><Pencil size={13} />{item.status === "completed" ? "編輯" : "繼續製作"}</button>{item.status === "completed" && <button onClick={() => void toggleDefault(item)}><Star size={13} />{item.isDefault ? "取消預設" : "設為預設"}</button>}<button onClick={() => void downloadCover(item)}><Download size={13} />下載</button><button className="danger" onClick={() => void removeItem(item)}><Trash2 size={13} />刪除</button></div>
         </article>)}</div>}

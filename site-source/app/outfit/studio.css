@@ -180,3 +180,4 @@ html:has(.studio.embed){overflow:hidden}
 .persona-banner{display:flex;gap:10px;align-items:center;justify-content:space-between;margin:0 0 14px;padding:10px 14px;border-radius:12px;background:rgba(21,158,49,.12);border:1px solid rgba(21,158,49,.4);font-size:13px}
 .persona-banner button{padding:6px 12px;border-radius:99px;border:1px solid #159e31;background:transparent;color:inherit;cursor:pointer}
 .persona-banner-actions{display:flex;gap:8px;flex-wrap:wrap}
+.lib-scope{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 10px}.lib-scope button{padding:6px 14px;border-radius:99px;border:1px solid rgba(120,130,150,.4);background:transparent;color:inherit;cursor:pointer}.lib-scope button.on{background:#159e31;border-color:#159e31;color:#fff}.lib-scope select{padding:6px 10px;border-radius:10px;border:1px solid rgba(120,130,150,.4);background:transparent;color:inherit}

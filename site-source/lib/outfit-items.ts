@@ -42,6 +42,13 @@ export async function listItems(account: string) {
   return (results || []).map(itemPublic);
 }
 
+/** 全部人員的製作單（管理者與 Machi 用）：依人員名字、更新時間排序。 */
+export async function listAllItems() {
+  await ensureItemsTable();
+  const { results } = await env.DB!.prepare("SELECT * FROM outfit_items WHERE status != 'deleted' ORDER BY owner_name, owner_account, updated_at DESC LIMIT 600").all<ItemRow>();
+  return (results || []).map(itemPublic);
+}
+
 export async function getItem(id: string): Promise<ItemRow | null> {
   await ensureItemsTable();
   return await env.DB!.prepare("SELECT * FROM outfit_items WHERE id = ?").bind(id).first<ItemRow>();

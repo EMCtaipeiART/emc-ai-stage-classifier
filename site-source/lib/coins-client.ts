@@ -28,3 +28,6 @@ export async function whoami(request: Request): Promise<Who | null> {
   if (!result.ok || !result.account) return null;
   return { account: String(result.account), name: String(result.name || ""), designer: Boolean(result.designer), pixelDesigner: Boolean(result.pixelDesigner), admin: Boolean(result.admin), department: String(result.department || "") };
 }
+
+/** 管理者與 Machi 可以看、編輯所有人的製作單（我的服裝／頭像／帽子／眼鏡）。 */
+export const canManageAll = (who: Who) => who.admin || who.name === "Machi";

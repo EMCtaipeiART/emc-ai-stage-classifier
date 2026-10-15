@@ -1,4 +1,4 @@
-import { whoami } from "@/lib/coins-client";
+import { canManageAll, whoami } from "@/lib/coins-client";
 import { deleteItem, getItem, itemPublic, updateItem } from "@/lib/outfit-items";
 
 const clamp = (value: unknown, min: number, max: number, fallback = 0) => { const n = Number(value); return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback; };
@@ -28,7 +28,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!who) return Response.json({ error: "請從設計需求系統登入後進入這個頁面。" }, { status: 401 });
   const { id } = await context.params;
   const row = await getItem(id);
-  if (!row || row.owner_account !== who.account || row.status === "deleted") return Response.json({ error: "找不到這件服裝" }, { status: 404 });
+  if (!row || (row.owner_account !== who.account && !canManageAll(who)) || row.status === "deleted") return Response.json({ error: "找不到這件服裝" }, { status: 404 });
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
   const update: Parameters<typeof updateItem>[1] = {};
   if (body.name !== undefined) {
@@ -81,7 +81,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   if (!who) return Response.json({ error: "請從設計需求系統登入後進入這個頁面。" }, { status: 401 });
   const { id } = await context.params;
   const row = await getItem(id);
-  if (!row || row.owner_account !== who.account || row.status === "deleted") return Response.json({ error: "找不到這件服裝" }, { status: 404 });
+  if (!row || (row.owner_account !== who.account && !canManageAll(who)) || row.status === "deleted") return Response.json({ error: "找不到這件服裝" }, { status: 404 });
   await deleteItem(row);
   return Response.json({ ok: true });
 }
