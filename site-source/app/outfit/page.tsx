@@ -224,6 +224,9 @@ export default function OutfitPage() {
     })();
     return () => { cancelled = true; };
   }, [token, persona?.headItemId, persona?.step, headReload]);
+  // 個人形象：預設「頭在身體前」（以前存的頭像沒指定前後時會依原頭像的性別當長髮放後面，男生下巴會被衣領蓋住）；要放後面再手動選
+  const behindDefaulted = useRef("");
+  useEffect(() => { if (showWizard && selectedHeadId && behindDefaulted.current !== selectedHeadId) { behindDefaulted.current = selectedHeadId; setBehindChoice("front"); } }, [showWizard, selectedHeadId]);
   // 拼接用的原頭像格子要跟頭像對位時一樣（自訂頭像）
   useEffect(() => { if (selectedHeadIdx !== null && selectedHead && fit.headIndex !== selectedHeadIdx) setFit((current) => ({ ...current, headIndex: selectedHeadIdx })); }, [selectedHeadIdx, selectedHead, phase, fitBody]);
   // 預覽：每次調整都重畫（畫在畫面上的 canvas，縮到適合的寬度）
