@@ -23,6 +23,11 @@ export async function getPersona(account: string): Promise<PersonaRow | null> {
   return await env.DB!.prepare("SELECT * FROM persona_profiles WHERE account = ?").bind(account).first<PersonaRow>();
 }
 
+export async function getPersonaByName(name: string): Promise<PersonaRow | null> {
+  await ensurePersonaTable();
+  return await env.DB!.prepare("SELECT * FROM persona_profiles WHERE name = ? AND head_item_id != '' ORDER BY updated_at DESC LIMIT 1").bind(name).first<PersonaRow>();
+}
+
 export async function upsertPersona(account: string, name: string, patch: { headItemId?: string; outfitItemId?: string; step?: string; complete?: boolean }) {
   await ensurePersonaTable();
   const row = await getPersona(account);
