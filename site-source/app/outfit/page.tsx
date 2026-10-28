@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { normalizePhoto } from "@/lib/normalize-photo";
 import "./studio.css";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Crown, Glasses, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import HeadStudio from "./head-studio";
@@ -368,7 +369,7 @@ export default function OutfitPage() {
         // 把目前這張當成「衣服」，要求重新套到標準身體上
         form.set("mode", "refit");
         form.append("images", await (await fetch(active.image, { headers: active.image.startsWith("/api/") ? authHeaders() : {} })).blob(), "draft.png");
-      } else files.forEach((file) => form.append("images", file));
+      } else for (const file of files) form.append("images", await normalizePhoto(file));
       const response = await fetch("/api/outfit", { method: "POST", headers: authHeaders(), body: form });
       const raw = (await response.text()).trim();
       let payload: { error?: string; itemId?: string; attempt?: number; images?: string[]; described?: string; transparent?: boolean; model?: string; quality?: Quality; seconds?: number; usage?: Generated["usage"] };

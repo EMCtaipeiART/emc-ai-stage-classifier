@@ -9,10 +9,12 @@ export type PersonaState = { step: string; headItemId: string; outfitItemId: str
 type Candidate = { itemId: string; images: string[]; pick: number };
 type ItemLite = { id: string; status: string; kind?: string; bodyUrl?: string; variant?: number };
 
+import { normalizePhoto } from "@/lib/normalize-photo";
+
 async function generateOne(token: string, kind: "head" | "outfit", file: File, notes: string): Promise<Candidate> {
   const form = new FormData();
   form.set("kind", kind); form.set("onboarding", "1"); form.set("description", notes.trim());
-  form.append("images", file);
+  form.append("images", await normalizePhoto(file));
   const response = await fetch("/api/outfit", { method: "POST", headers: { "x-emc-editor-token": token }, body: form });
   const raw = (await response.text()).trim();
   let payload: { error?: string; itemId?: string; images?: string[] };

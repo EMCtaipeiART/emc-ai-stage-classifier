@@ -4,6 +4,7 @@
 // 參考圖是遊戲現有五位人物的頭像（lib/head-reference.ts），規格見 lib/head-spec.ts 與 EMC-ART-Pixel-Office/docs/HEAD_SPEC.md。
 // 完成的頭像存在「我的頭像」；目前還不會進元宇宙造型欄（遊戲要先支援自訂頭像）。
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { normalizePhoto } from "@/lib/normalize-photo";
 import { scrollStudioTop } from "@/lib/scroll";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Download, LoaderCircle, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import { analyzeHead } from "@/lib/head-check";
@@ -284,7 +285,7 @@ export default function HeadStudio({ kind, token, wallet, reloadWallet, autoOpen
       const form = new FormData();
       form.set("kind", kind); form.set("description", description.trim());
       if (itemId) form.set("itemId", itemId);
-      files.forEach((file) => form.append("images", file));
+      for (const file of files) form.append("images", await normalizePhoto(file));
       const response = await fetch("/api/outfit", { method: "POST", headers: auth(), body: form });
       const raw = (await response.text()).trim();
       let payload: { error?: string; itemId?: string; attempt?: number; images?: string[]; described?: string; transparent?: boolean };

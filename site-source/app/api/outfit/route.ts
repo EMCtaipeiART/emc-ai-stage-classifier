@@ -36,6 +36,15 @@ function base64ToBlob(base64: string, type: string) {
   return new Blob([bytes], { type });
 }
 
+/** 看檔案開頭的位元組判斷真正的圖片格式（不信任副檔名與瀏覽器回報的 type）；不是 PNG／JPEG／WebP／GIF 回傳空字串。 */
+function sniffImageMime(b: Uint8Array): string {
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  if (b.length > 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46) return "image/gif";
+  return "";
+}
+
 function friendlyError(status: number, message: string) {
   if (status === 401) return "OpenAI 金鑰無效或已被撤銷，請重新設定 OPENAI_API_KEY。";
   if (status === 403 || /verif/i.test(message)) return "這把 OpenAI 金鑰的組織尚未通過圖片模型的驗證（gpt-image-1 需要先在 OpenAI 後台完成組織驗證）。";
@@ -57,9 +66,11 @@ async function describeOutfit(apiKey: string, photos: File[], head = false, acce
   const content: Array<Record<string, string>> = [{ type: "input_text", text: accessory ? `Describe the ${accessory === "cap" ? "hat" : "glasses"}.` : head ? "Describe the hair and head features." : "Describe the outfit." }];
   for (const photo of photos) {
     const bytes = new Uint8Array(await photo.arrayBuffer());
+    const mime = sniffImageMime(bytes);
+    if (!mime) throw new Error("照片格式無法讀取（可能是 HEIC 或損毀的檔案），請改用 JPG／PNG 再上傳。");
     let binary = "";
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-    content.push({ type: "input_image", image_url: `data:${photo.type};base64,${btoa(binary)}` });
+    content.push({ type: "input_image", image_url: `data:${mime};base64,${btoa(binary)}` });
   }
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
