@@ -202,6 +202,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     if (!job) return; setError("");
     if (i === 0) { setStage("upload"); return; }
     if (i === 1) { setBusy("讀取三視圖"); try { const v = await fetchCanvas(job.id, "views3"); if (v) { setViews(splitViews(v).map((c) => clean(c))); setStage("align"); } else setError("找不到這張的三視圖原圖。"); } finally { setBusy(""); } return; }
+    if (i === 2 && sheetCells.length !== 3) { await goStage(1); setError("這張還沒確認對位：先按「對位正確，開始補其他角度」，才會進到補角度。"); return; }
     if (i === 2) { setStage(Object.keys(ai).length === AI_ANGLES.length ? "review" : "angles"); return; }
     if (frames.length === 12 && frames.every(Boolean)) setStage("review"); else setError("角度還沒補齊，先到「補其餘角度」完成。");
   }
@@ -267,7 +268,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <div style={{ height: 10, borderRadius: 99, background: "#e4eaef", overflow: "hidden", margin: "14px auto", maxWidth: 420 }}><div style={{ height: "100%", width: `${Object.keys(ai).length / 8 * 100}%`, background: "linear-gradient(90deg,#43d86c,#1aa844)", transition: "width .4s" }} /></div>
       <p style={{ fontWeight: 700 }}>已完成 {Object.keys(ai).length} / 8　{busy ? `（${elapsed} 秒）` : ""}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, maxWidth: 560, margin: "10px auto" }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ fontSize: 11 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ aspectRatio: "1", background: "#e4eaef", borderRadius: 8, display: "grid", placeItems: "center" }}>{failed.includes(deg) ? "✕" : busy ? <LoaderCircle size={12} className="spin" /> : ""}</div>}{deg}°</div>)}</div>
-      {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid(undefined, true))}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
+      {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid(undefined, !(job?.angles as Record<string, number> | undefined)?.["-1"]))}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
     </div>}
 
     {stage === "review" && <div className="preview" style={{ marginTop: 14 }}>
