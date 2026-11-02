@@ -74,7 +74,8 @@ export async function authorize(request: Request, cookieValue?: string): Promise
   if (cookieValue === expected || request.headers.get(ACCESS_HEADER) === expected) return "team-password";
   const editorToken = request.headers.get(EDITOR_TOKEN_HEADER);
   if (editorToken) {
-    const account = await verifyEditorToken(editorToken).catch(() => "");
+    let account = await verifyEditorToken(editorToken).catch(() => "");
+    if (!account) account = await verifyEditorToken(editorToken).catch(() => "");   // 後端瞬斷時再驗一次
     if (account) return account;
   }
   return null;

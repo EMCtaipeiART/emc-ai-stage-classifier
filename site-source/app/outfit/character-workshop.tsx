@@ -18,11 +18,13 @@ type Props = { token: string; departmentLabel: string; canAll?: boolean; openId?
 // 管理者發佈時要指定「這套是給誰的」：名單由後端（後台資料庫「帳號設定」）提供
 
 async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
-  const response = await fetch(url, { method: "POST", headers: { "x-emc-editor-token": token, ...(json ? { "Content-Type": "application/json" } : {}) }, body });
+  const send = () => fetch(url, { method: "POST", headers: { "x-emc-editor-token": token, ...(json ? { "Content-Type": "application/json" } : {}) }, body });
+  let response = await send();
+  if (response.status === 401) { await new Promise((r) => setTimeout(r, 1200)); response = await send(); }   // 驗證登入的後端偶爾瞬斷（部署、冷啟動）：等一下再試一次
   const raw = (await response.text()).trim();
   let payload: T & { error?: string };
   try { payload = JSON.parse(raw); } catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）`); }
-  if (!response.ok || payload.error) throw new Error(payload.error || "操作失敗，請稍後再試。");
+  if (!response.ok || payload.error) throw new Error(response.status === 401 ? "登入驗證暫時失敗，請稍後再按一次；若一直失敗，請回設計需求系統重新點「服裝」進入。" : payload.error || "操作失敗，請稍後再試。");
   return payload;
 }
 
