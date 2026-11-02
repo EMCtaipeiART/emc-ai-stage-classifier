@@ -31,8 +31,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   await env.DB!.prepare("UPDATE character_jobs SET publish_name = ? WHERE id = ?").bind(name, id).run();
   if (job.account === who.account && name === who.name) await upsertPersona(job.account, name, { step: "done", complete: true }).catch(() => undefined);
   let avatarSaved = false;
-  if (avatar.startsWith("data:image/png;base64,") && job.account === who.account && name === who.name) {
-    avatarSaved = await saveAvatarSnapshot(request, who, avatar, `char:${id}`);
+  if (avatar.startsWith("data:image/png;base64,")) {
+    avatarSaved = await saveAvatarSnapshot(request, who, avatar, `char:${id}`, name);
   }
   return Response.json({ ok: true, name, avatarSaved });
 }

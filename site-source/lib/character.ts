@@ -200,10 +200,17 @@ export async function setSeat(name: string, seat: string) {
 }
 
 /** 存頭像快照：設計師（元宇宙名單裡的人）走元宇宙的快照，企劃／專案同仁走個人形象的快照（兩邊後端規則不同，設計師用後者會被擋）。 */
-export async function saveAvatarSnapshot(request: Request, who: Who, png: string, lookKey: string): Promise<boolean> {
+export async function saveAvatarSnapshot(request: Request, who: Who, png: string, lookKey: string, forName = who.name): Promise<boolean> {
+  const token = editorTokenOf(request);
+  if (forName !== who.name) {
+    // 管理者幫別人發佈：後端只開放「管理者／Machi 更新設計師的頭像快照」（帶 target）；企劃／專案同仁的個人形象只能本人存
+    if (!canManageAll(who)) return false;
+    const result = await designApi("pixelOfficeAvatarSnapshot", { token, png, lookKey, target: forName }).catch(() => null);
+    return Boolean(result?.ok && result.saved !== false);
+  }
   const result = who.pixelDesigner || who.designer
-    ? await designApi("pixelOfficeAvatarSnapshot", { token: editorTokenOf(request), png, lookKey }).catch(() => null)
-    : await designApi("personaAvatarSnapshot", { editorToken: editorTokenOf(request), png, lookKey, headId: "", outfitId: "" }).catch(() => null);
+    ? await designApi("pixelOfficeAvatarSnapshot", { token, png, lookKey }).catch(() => null)
+    : await designApi("personaAvatarSnapshot", { editorToken: token, png, lookKey, headId: "", outfitId: "" }).catch(() => null);
   return Boolean(result?.ok);
 }
 
@@ -216,11 +223,11 @@ export async function makeDefault(job: JobRow, who: Who, request: Request, name:
   await setPublished(name, job.id, job.account);
   await env.DB!.prepare("UPDATE character_jobs SET status = 'published', publish_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(name, job.id).run();
   let avatarSaved = false;
-  if (job.account === who.account && name === who.name) {
+  {
     const avatar = await readAsset(jobKey(job.id, "avatar"));
     if (avatar) {
       let bin = ""; for (const byte of avatar) bin += String.fromCharCode(byte);
-      avatarSaved = await saveAvatarSnapshot(request, who, "data:image/png;base64," + btoa(bin), `char:${job.id}`);
+      avatarSaved = await saveAvatarSnapshot(request, who, "data:image/png;base64," + btoa(bin), `char:${job.id}`, name);
     }
   }
   return { avatarSaved };
