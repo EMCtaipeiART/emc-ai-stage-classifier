@@ -24,7 +24,7 @@ async function postJson<T>(url: string, token: string, body: BodyInit, json = fa
   const raw = (await response.text()).trim();
   let payload: T & { error?: string };
   try { payload = JSON.parse(raw); } catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）`); }
-  if (!response.ok || payload.error) throw new Error(response.status === 401 ? "登入驗證暫時失敗，請稍後再按一次；若一直失敗，請回設計需求系統重新點「服裝」進入。" : payload.error || "操作失敗，請稍後再試。");
+  if (!response.ok || payload.error) throw new Error(response.status === 401 ? (payload.error || "登入已失效，請回設計需求系統重新整理後再操作。") : payload.error || "操作失敗，請稍後再試。");
   return payload;
 }
 

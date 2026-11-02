@@ -14,7 +14,8 @@ export async function proxy(request: NextRequest) {
   // /api/public/ 是給 Pixel Office 遊戲讀的公開資料（已發佈的服裝），不需要登入
   if (!PUBLIC_PATHS.has(pathname) && !pathname.startsWith("/api/public/") && !await authorize(request, request.cookies.get(AUTH_COOKIE)?.value)) {
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json({ error: "需要登入：請輸入團隊密碼。", reason: "AUTH_REQUIRED" }, { status: 401, headers: cors ?? undefined });
+      const had = request.headers.get("x-emc-editor-token");
+      return NextResponse.json({ error: had ? "登入已失效：請回設計需求系統重新整理頁面（或重新登入）後再操作。" : "沒有收到登入資訊：請從設計需求系統左側選單的「服裝」進入，不要直接開這個網址。", reason: had ? "TOKEN_INVALID" : "NO_TOKEN", path: pathname }, { status: 401, headers: cors ?? undefined });
     }
     return NextResponse.redirect("https://emc-art.com/");   // 沒有登入帳號：回設計需求系統登入後再進來
   }
