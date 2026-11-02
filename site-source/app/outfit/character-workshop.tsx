@@ -13,7 +13,9 @@ import {
 const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
 const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
 type JobInfo = { id: string; status: string; startRuns: number; angles: Record<string, number> };
-type Props = { token: string; departmentLabel: string; onPublished?: () => void };
+type Props = { token: string; departmentLabel: string; canAll?: boolean; onPublished?: () => void };
+// 3D 辦公室目前有的 12 位人物；管理者發佈時要指定「這套是給誰的」
+const PEOPLE = ["Amber", "Anna", "Leona", "Machi", "Noise", "余采馨", "吳冠賢", "廖秦葦", "李明庭", "鄭筱舢", "黎子瑄", "王藍庭"];
 
 async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
   const response = await fetch(url, { method: "POST", headers: { "x-emc-editor-token": token, ...(json ? { "Content-Type": "application/json" } : {}) }, body });
@@ -24,7 +26,7 @@ async function postJson<T>(url: string, token: string, body: BodyInit, json = fa
   return payload;
 }
 
-export default function CharacterWorkshop({ token, departmentLabel, onPublished }: Props) {
+export default function CharacterWorkshop({ token, departmentLabel, canAll = false, onPublished }: Props) {
   const auth = useMemo(() => ({ "x-emc-editor-token": token }), [token]);
   const [job, setJob] = useState<JobInfo | null>(null);
   const [stage, setStage] = useState<"loading" | "upload" | "align" | "angles" | "review" | "done">("loading");
@@ -39,6 +41,8 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
   const [ai, setAi] = useState<Record<number, Canvas>>({});
   const [failed, setFailed] = useState<number[]>([]);
   const [turn, setTurn] = useState(0);
+  const [myName, setMyName] = useState("");
+  const [target, setTarget] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const preview = useMemo(() => file ? URL.createObjectURL(file) : "", [file]);
   const stepIndex = stage === "upload" || stage === "loading" ? 0 : stage === "align" ? 1 : stage === "angles" ? 2 : 3;
@@ -56,7 +60,8 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
     (async () => {
       try {
         const r = await fetch("/api/character", { headers: auth, cache: "no-store" });
-        const p = await r.json() as { job?: JobInfo | null; error?: string };
+        const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string };
+        setMyName(p.name || "");
         if (p.error) throw new Error(p.error);
         if (!p.job) { setStage("upload"); return; }
         setJob(p.job);
@@ -104,31 +109,32 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
       const form = new FormData();
       form.set("sheet", await toBlob(sheet), "sheet.png"); form.set("align", JSON.stringify({ adj, measures }));
       await postJson("/api/character/" + job.id + "/confirm", token, form);
-      setSheetCells(cells); setJob({ ...job, status: "angles" }); setStage("angles");
+      setSheetCells(cells); setJob({ ...job, status: "angles" }); setStage("angles"); setBusy("");
+      void fillAngles(undefined, job.id, {});   // 確認後由系統自動補角度，不需要再按鈕
+      return;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
-    finally { setBusy(""); }
+    finally { setBusy((b) => b === "儲存對位" ? "" : b); }
   }
 
-  async function runAngle(deg: number) {
-    if (!job) return;
-    await postJson("/api/character/" + job.id + "/angle", token, JSON.stringify({ deg }), true);
-    const c = await fetchCanvas(job.id, `a${String(deg).padStart(3, "0")}`, true);
+  async function runAngle(jobId: string, deg: number) {
+    await postJson("/api/character/" + jobId + "/angle", token, JSON.stringify({ deg }), true);
+    const c = await fetchCanvas(jobId, `a${String(deg).padStart(3, "0")}`, true);
     if (!c) throw new Error("讀不到生成的角度圖");
     setAi((prev) => ({ ...prev, [deg]: clean(c) }));
   }
   /** 一次補齊還沒有的角度（同時最多 2 個，避免一次打爆額度）；失敗的記下來，可以單獨重算。 */
-  async function fillAngles(only?: number) {
-    if (!job || busy) return;
+  async function fillAngles(only?: number, jobId = job?.id, have: Record<number, Canvas> = ai) {
+    if (!jobId || (busy && !jobId)) return;
     setError(""); setBusy("補角度中"); setFailed([]);
-    const todo = only ? [only] : AI_ANGLES.filter((deg) => !ai[deg]);
+    const todo = only ? [only] : AI_ANGLES.filter((deg) => !have[deg]);
     const bad: number[] = []; let firstError = "";
     const queue = [...todo];
     await Promise.all([0, 1].map(async () => {
-      while (queue.length) { const deg = queue.shift()!; try { await runAngle(deg); } catch (cause) { bad.push(deg); firstError ||= cause instanceof Error ? cause.message : "生成失敗"; } }
+      while (queue.length) { const deg = queue.shift()!; try { await runAngle(jobId, deg); } catch (cause) { bad.push(deg); firstError ||= cause instanceof Error ? cause.message : "生成失敗"; } }
     }));
     setFailed(bad); if (firstError) setError(`有 ${bad.length} 個角度失敗：${firstError}`);
     setBusy("");
-    if (!bad.length) setStage("review");
+    if (!bad.length) setStage("review");   // 只重算單一角度時也會回到檢查畫面
   }
 
   const frames = useMemo(() => sheetCells.length === 3 ? assembleFrames(sheetCells, ai) : [], [sheetCells, ai]);
@@ -142,15 +148,18 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
     g.drawImage(placeCell(frame, m, 320, 290, 12), 0, 0);
   }, [frames, turn, stage]);
 
+  const publishName = canAll ? target : myName;
   async function publish() {
     if (!job || busy || frames.some((f) => !f)) return;
+    if (!publishName) { setError(canAll ? "請先選擇這套角色要發佈給誰。" : "找不到你的人物名字，請聯絡管理者。"); return; }
+    if (canAll && !window.confirm(`確定要把這套角色發佈給「${publishName}」嗎？3D 辦公室裡的 ${publishName} 會換成新造型。`)) return;
     setError(""); setBusy("烘焙並上線");
     try {
       const all = frames as Canvas[];
       const small = bakeAtlas(all, 60), big = bakeAtlas(all, 240);
       const front = measure(all[0]) ? placeCell(all[0], measure(all[0])!, 320, 290, 12) : all[0];
       const form = new FormData();
-      form.set("atlas", await toBlob(small), "atlas.png"); form.set("atlasHd", await toBlob(big), "atlas-hd.png"); form.set("avatar", avatarOf(front));
+      form.set("name", publishName); form.set("atlas", await toBlob(small), "atlas.png"); form.set("atlasHd", await toBlob(big), "atlas-hd.png"); form.set("avatar", avatarOf(front));
       await postJson("/api/character/" + job.id + "/publish", token, form);
       setStage("done"); onPublished?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "發佈失敗"); }
@@ -194,10 +203,14 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
       </div>
     </div>}
 
-    {stage === "angles" && <div className="persona-card">
-      <p className="persona-hint">接下來 AI 會依你確認的三視圖，補上其餘 8 個角度（30°、60°、120°、150°、210°、240°、300°、330°），約 3～8 分鐘，請不要關閉這個頁面。</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ textAlign: "center", fontSize: 12 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ height: 96, background: "#e4eaef", borderRadius: 10, display: "grid", placeItems: "center" }}>{busy ? <LoaderCircle size={16} className="spin" /> : failed.includes(deg) ? "失敗" : "待生成"}</div>}{deg}°</div>)}</div>
-      <button className="generate" onClick={() => void fillAngles()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…{elapsed} 秒（已完成 {Object.keys(ai).length}/8）</> : failed.length || Object.keys(ai).length ? "繼續補齊" : "開始補角度"}</button>
+    {stage === "angles" && <div className="persona-card" style={{ textAlign: "center", padding: "36px 20px" }}>
+      <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
+      <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
+      <p className="persona-hint">AI 正依你確認的三視圖補上其餘 8 個角度，約 3～8 分鐘，完成會自動進入檢查畫面。請不要關閉或離開這個頁面。</p>
+      <div style={{ height: 10, borderRadius: 99, background: "#e4eaef", overflow: "hidden", margin: "14px auto", maxWidth: 420 }}><div style={{ height: "100%", width: `${Object.keys(ai).length / 8 * 100}%`, background: "linear-gradient(90deg,#43d86c,#1aa844)", transition: "width .4s" }} /></div>
+      <p style={{ fontWeight: 700 }}>已完成 {Object.keys(ai).length} / 8　{busy ? `（${elapsed} 秒）` : ""}</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, maxWidth: 560, margin: "10px auto" }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ fontSize: 11 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ aspectRatio: "1", background: "#e4eaef", borderRadius: 8, display: "grid", placeItems: "center" }}>{failed.includes(deg) ? "✕" : busy ? <LoaderCircle size={12} className="spin" /> : ""}</div>}{deg}°</div>)}</div>
+      {!busy && <button className="generate" onClick={() => void fillAngles()}>{failed.length ? "重試失敗的角度" : "繼續補齊"}</button>}
     </div>}
 
     {stage === "review" && <div className="persona-card">
@@ -207,6 +220,7 @@ export default function CharacterWorkshop({ token, departmentLabel, onPublished 
       <p style={{ textAlign: "center", fontWeight: 700 }}>{turn * 30}°</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>{frames.map((f, k) => f ? <button key={k} onClick={() => setTurn(k)} style={{ border: k === turn ? "2px solid #2fbf57" : "2px solid transparent", borderRadius: 8, padding: 2, background: "#fff" }}><Thumb canvas={f} /><small>{k * 30}°</small></button> : null)}</div>
       {AI_ANGLES.includes(turn * 30) && <button onClick={() => void fillAngles(turn * 30)} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={16} className="spin" /> : `重算 ${turn * 30}° 這個角度（已用 ${job?.angles[turn * 30] ?? 1} 次）`}</button>}
+      {canAll && <label className="field-label" style={{ display: "block", marginTop: 12 }}>發佈給誰（管理者必選）<select value={target} onChange={(e) => setTarget(e.target.value)} style={{ display: "block", width: "100%", marginTop: 4, padding: 8, borderRadius: 10 }}><option value="">請選擇人物…</option>{PEOPLE.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
       <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
     </div>}
 
