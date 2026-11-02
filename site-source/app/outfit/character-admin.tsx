@@ -22,7 +22,7 @@ export default function CharacterAdmin({ token, onOpen, refreshKey }: { token: s
       setJobs(p.jobs || []); setTargets(p.targets || []); setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "讀取失敗"); }
   }
-  useEffect(() => { void load(); }, [token, refreshKey]);
+  useEffect(() => { if (token) void load(); }, [token, refreshKey]);
 
   async function act(id: string, init: RequestInit, confirmText: string) {
     if (!window.confirm(confirmText)) return;

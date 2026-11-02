@@ -30,7 +30,7 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
       setData(p); setName((n) => n || defaultName || p.me); setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "讀取失敗"); }
   }
-  useEffect(() => { void load(); }, [token]);
+  useEffect(() => { if (token) void load(); }, [token]);
 
   async function choose(seat: string) {
     if (!data || !name || busy) return;

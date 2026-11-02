@@ -65,6 +65,8 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
 
   // 進來時讀回自己的製作單，從上次停下的地方繼續
   useEffect(() => {
+    if (!token) return;   // token 要等網址參數讀進來才有；沒有 token 就先不打 API（否則會多出一則「沒有登入資訊」的紅字）
+    setError("");
     (async () => {
       try {
         const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
