@@ -1,5 +1,6 @@
 import { canManageAll, designApi, editorTokenOf } from "@/lib/coins-client";
-import { isPng, ownJob, publishTargets, putAsset, requireWho, setPublished, updateJob } from "@/lib/character";
+import { env } from "cloudflare:workers";
+import { isPng, jobKey, ownJob, publishTargets, putAsset, requireWho, setPublished, updateJob } from "@/lib/character";
 import { upsertPersona } from "@/lib/persona";
 
 /** 發佈：前端烘焙好的 12 視角圖集（一般 60px 格、高清 240px 格）存到雲端，3D 辦公室下次載入就會用；同時更新頭像快照並結束新人精靈。 */
@@ -20,10 +21,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const name = canManageAll(who) ? asked : who.name;
   if (canManageAll(who) && asked && !(await publishTargets(who, request)).includes(asked)) return Response.json({ error: "這個名字不在帳號設定的名單裡。" }, { status: 400 });
   if (!name || name.length > 40 || /[\\/?#]/.test(name)) return Response.json({ error: canManageAll(who) ? "請先選擇這套角色要發佈給誰。" : "找不到你的人物名字，請聯絡管理者。" }, { status: 400 });
+  await putAsset(jobKey(id, "atlas"), small, "image/png");   // 每套各自留一份，之後可以隨時切換預設
+  await putAsset(jobKey(id, "atlas-hd"), big, "image/png");
+  if (avatar.startsWith("data:image/png;base64,")) { try { const raw = atob(avatar.slice(22)); const buf = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i); if (isPng(buf)) await putAsset(jobKey(id, "avatar"), buf, "image/png"); } catch { /* 頭像存不起來不影響上線 */ } }
   await putAsset(`charpub/${name}/atlas.png`, small, "image/png");
   await putAsset(`charpub/${name}/atlas-hd.png`, big, "image/png");
   await setPublished(name, id, job.account);
   await updateJob(id, { status: "published" });
+  await env.DB!.prepare("UPDATE character_jobs SET publish_name = ? WHERE id = ?").bind(name, id).run();
   if (job.account === who.account && name === who.name) await upsertPersona(job.account, name, { step: "done", complete: true }).catch(() => undefined);
   let avatarSaved = false;
   if (avatar.startsWith("data:image/png;base64,") && job.account === who.account && name === who.name) {

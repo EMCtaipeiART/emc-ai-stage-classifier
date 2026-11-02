@@ -13,7 +13,7 @@ import {
 // 01 上傳照片＋提示詞 → AI 三視圖 → 02 自動對位、使用者確認 → AI 補其餘 8 個角度 → 03 轉盤檢查（壞的可單獨重算）→ 04 發佈給 3D 辦公室。
 const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
 const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
-type JobInfo = { id: string; status: string; startRuns: number; angles: Record<string, number> };
+type JobInfo = { id: string; publishedAs?: string; target?: string; status: string; startRuns: number; angles: Record<string, number> };
 type Props = { token: string; departmentLabel: string; canAll?: boolean; openId?: string; onPublished?: () => void };
 // 管理者發佈時要指定「這套是給誰的」：名單由後端（後台資料庫「帳號設定」）提供
 
@@ -67,6 +67,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   useEffect(() => {
     if (!token) return;   // token 要等網址參數讀進來才有；沒有 token 就先不打 API（否則會多出一則「沒有登入資訊」的紅字）
     setError("");
+    if (openId === "new") { setStage("upload"); return; }   // 「新增一套角色」：不接續舊的製作單
     (async () => {
       try {
         const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
@@ -190,17 +191,31 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       const form = new FormData();
       form.set("name", publishName); form.set("atlas", await toBlob(small), "atlas.png"); form.set("atlasHd", await toBlob(big), "atlas-hd.png"); form.set("avatar", avatarOf(front));
       await postJson("/api/character/" + job.id + "/publish", token, form);
-      setStage("done"); onPublished?.();
+      setJob({ ...job, publishedAs: publishName, target: publishName }); setStage("done"); onPublished?.();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "發佈失敗"); }
     finally { setBusy(""); }
   }
 
+  // 管理者：從步驟列回到任何一步編輯（三視圖對位、補其餘角度…）；改完在最後一步重新按「確認上線」就會覆蓋預設
+  async function goStage(i: number) {
+    if (!job) return; setError("");
+    if (i === 0) { setStage("upload"); return; }
+    if (i === 1) { setBusy("讀取三視圖"); try { const v = await fetchCanvas(job.id, "views3"); if (v) { setViews(splitViews(v).map((c) => clean(c))); setStage("align"); } else setError("找不到這張的三視圖原圖。"); } finally { setBusy(""); } return; }
+    if (i === 2) { setStage(Object.keys(ai).length === AI_ANGLES.length ? "review" : "angles"); return; }
+    if (frames.length === 12 && frames.every(Boolean)) setStage("review"); else setError("角度還沒補齊，先到「補其餘角度」完成。");
+  }
+  async function makeMyDefault() {
+    if (!job || busy) return; setError(""); setBusy("設定預設");
+    try { const r = await postJson<{ name?: string }>(`/api/character/${job.id}/default`, token, JSON.stringify({ name: canAll ? (job.target || target) : undefined }), true); setJob({ ...job, publishedAs: r.name || job.target || "預設" }); onPublished?.(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "設定失敗"); }
+    finally { setBusy(""); }
+  }
   const nudge = (i: number, patch: Partial<Adjust>) => setAdj((prev) => prev.map((a, k) => k === i ? { ...a, ...patch } : a));
   const names = ["正面", "側面（朝右）", "背面"];
 
   return <section className="persona">
     <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>角色工坊</h2><p>{departmentLabel}同仁：上傳一張個人照並寫下想要的樣子，AI 先畫三視圖讓你確認對位，確認後再補齊其他角度，沒問題就上線到 3D 辦公室。</p></div></div>
-    <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} className={index < stepIndex ? "done" : index === stepIndex ? "now" : stage === "done" ? "done" : ""}><span>{index < stepIndex || stage === "done" ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
+    <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} onClick={canAll && job && !busy && stage !== "loading" ? () => void goStage(index) : undefined} style={canAll && job ? { cursor: "pointer" } : undefined} title={canAll && job ? "管理者：回到這一步編輯" : undefined} className={index < stepIndex ? "done" : index === stepIndex ? "now" : stage === "done" ? "done" : ""}><span>{index < stepIndex || stage === "done" ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="error" role="alert">{error}</div>}
 
     {stage === "loading" && <div className="persona-card"><LoaderCircle className="spin" size={20} /> 讀取中…</div>}
@@ -254,7 +269,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
     </div>}
 
-    {stage === "done" && <><div className="persona-card"><p className="persona-hint"><b>已上線！</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。下面可以選一個座位；不選就在辦公室自由走動，之後隨時可以回來改。</p></div><SeatPicker token={token} canAll={canAll} defaultName={target || myName} /></>}
+    {stage === "done" && <><div className="persona-card">{job && !job.publishedAs && <p className="persona-hint"><button className="generate" onClick={() => void makeMyDefault()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : "把這套設為預設角色"}</button> 這套目前不是預設，設定後 3D 辦公室與首頁頭像會換成這套。</p>}<p className="persona-hint"><b>{job?.publishedAs ? "已上線（預設中）！" : "這套已完成。"}</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。下面可以選一個座位；不選就在辦公室自由走動，之後隨時可以回來改。</p></div><SeatPicker token={token} canAll={canAll} defaultName={target || myName} /></>}
   </section>;
 }
 

@@ -30,8 +30,6 @@ export async function POST(request: Request) {
     if (!job) return Response.json({ error: "找不到這張製作單。" }, { status: 404 });
     if (!admin && job.start_runs >= FREE_START_RUNS) return Response.json({ error: `三視圖最多重新生成 ${FREE_START_RUNS} 次，已用完。`, reason: "LIMIT" }, { status: 429 });
   } else {
-    const row = await env.DB!.prepare("SELECT COUNT(*) AS n FROM character_jobs WHERE account = ?").bind(who.account).first<{ n: number }>();
-    if (!admin && (row?.n ?? 0) >= FREE_START_RUNS) return Response.json({ error: "你已經建立過角色製作單，請繼續上次的進度，或聯絡管理者。", reason: "LIMIT" }, { status: 429 });
     id = crypto.randomUUID();
     await env.DB!.prepare("INSERT INTO character_jobs (id, account, name, prompt, start_runs) VALUES (?, ?, ?, ?, 0)").bind(id, who.account, who.name, notes).run();
   }

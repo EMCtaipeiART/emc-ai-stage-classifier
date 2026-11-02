@@ -1,5 +1,5 @@
 import { canManageAll } from "@/lib/coins-client";
-import { deleteJob, getJob, moveJobPublish, publishTargets, requireWho, unpublishJob } from "@/lib/character";
+import { deleteJob, getJob, moveJobPublish, publishedAsOf, publishTargets, requireWho, unpublishJob } from "@/lib/character";
 
 /** 管理：只有管理者與 Machi。PATCH { action: "unpublish" } 取消上線；PATCH { action: "move", name } 改發佈給別人；DELETE 刪除整張製作單（含圖片，已上線的一併取消）。 */
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -24,9 +24,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   const auth = await requireWho(request);
   if ("error" in auth) return auth.error;
-  if (!canManageAll(auth.who)) return Response.json({ error: "只有管理者可以管理角色製作單。" }, { status: 403 });
   const { id } = await context.params;
-  if (!await getJob(id)) return Response.json({ error: "找不到這張製作單。" }, { status: 404 });
+  const job = await getJob(id);
+  if (!job) return Response.json({ error: "找不到這張製作單。" }, { status: 404 });
+  if (!canManageAll(auth.who)) {   // 本人可以刪自己「沒在用」的那幾套；正在當預設的要先換成別套
+    if (job.account !== auth.who.account) return Response.json({ error: "只能刪除自己的製作單。" }, { status: 403 });
+    if (await publishedAsOf(id)) return Response.json({ error: "這套正在當預設，請先把別套設為預設再刪除。" }, { status: 400 });
+  }
   await deleteJob(id);
   return Response.json({ ok: true });
 }

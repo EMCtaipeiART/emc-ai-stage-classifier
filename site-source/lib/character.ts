@@ -14,7 +14,8 @@ export function ensureCharacterTables() {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS character_jobs (id TEXT PRIMARY KEY, account TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'views3', prompt TEXT NOT NULL DEFAULT '', described TEXT NOT NULL DEFAULT '', start_runs INTEGER NOT NULL DEFAULT 1, angles_json TEXT NOT NULL DEFAULT '{}', align_json TEXT NOT NULL DEFAULT '', cost_usd REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS character_seats (name TEXT PRIMARY KEY, seat TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS character_published (name TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, job_id TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
-  ]).then(() => undefined).catch((error) => { ready = null; throw error; });
+  ]).then(() => env.DB!.prepare("ALTER TABLE character_jobs ADD COLUMN publish_name TEXT NOT NULL DEFAULT ''").run().catch(() => undefined))   // 這張製作單要發佈給誰（已有欄位會報錯，略過）
+    .then(() => undefined).catch((error) => { ready = null; throw error; });
   return ready;
 }
 
@@ -62,6 +63,11 @@ export async function ownJob(id: string, who: Who): Promise<JobRow | null> {
 export async function latestJob(account: string): Promise<JobRow | null> {
   await ensureCharacterTables();
   return await env.DB!.prepare("SELECT * FROM character_jobs WHERE account = ? ORDER BY created_at DESC, rowid DESC LIMIT 1").bind(account).first<JobRow>();
+}
+
+export async function publishedAsOf(jobId: string): Promise<string> {
+  await ensureCharacterTables();
+  return (await env.DB!.prepare("SELECT name FROM character_published WHERE job_id = ?").bind(jobId).first<{ name: string }>())?.name || "";
 }
 
 export function jobPublic(job: JobRow) {
@@ -128,12 +134,12 @@ export async function logGeneration(opts: { userId: string; label: string; descr
   } catch { /* 紀錄寫入失敗就算了 */ }
 }
 
-export async function listAllJobs() {
+export async function listAllJobs(account = "") {
   await ensureCharacterTables();
-  const { results } = await env.DB!.prepare("SELECT j.*, p.name AS published_as FROM character_jobs j LEFT JOIN character_published p ON p.job_id = j.id ORDER BY j.created_at DESC LIMIT 100").all<JobRow & { published_as: string | null }>();
+  const { results } = await env.DB!.prepare(`SELECT j.*, p.name AS published_as FROM character_jobs j LEFT JOIN character_published p ON p.job_id = j.id ${account ? "WHERE j.account = ?" : ""} ORDER BY j.created_at DESC LIMIT 100`).bind(...(account ? [account] : [])).all<JobRow & { published_as: string | null; publish_name?: string }>();
   return (results || []).map((row) => {
     let done = 0; try { done = Object.keys(JSON.parse(row.angles_json || "{}")).length; } catch { /* 略過 */ }
-    return { id: row.id, account: row.account, ownerName: row.name, status: row.status, prompt: row.prompt, startRuns: row.start_runs, anglesDone: done, costUsd: row.cost_usd, createdAt: row.created_at, updatedAt: row.updated_at, publishedAs: row.published_as || "" };
+    return { id: row.id, account: row.account, ownerName: row.name, status: row.status, prompt: row.prompt, startRuns: row.start_runs, anglesDone: done, costUsd: row.cost_usd, createdAt: row.created_at, updatedAt: row.updated_at, publishedAs: row.published_as || "", target: row.publish_name || "" };
   });
 }
 
@@ -165,7 +171,7 @@ export async function moveJobPublish(jobId: string, account: string, to: string)
 
 export async function deleteJob(jobId: string) {
   await unpublishJob(jobId);
-  for (const name of ["views3", "sheet", "grid", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
+  for (const name of ["views3", "sheet", "grid", "atlas", "atlas-hd", "avatar", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
   await env.DB!.prepare("DELETE FROM character_jobs WHERE id = ?").bind(jobId).run();
 }
 
@@ -191,4 +197,24 @@ export async function setSeat(name: string, seat: string) {
     if (taken) throw new Error(`這個座位已經是 ${taken[0]} 的了。`);
   }
   await env.DB!.prepare("INSERT INTO character_seats (name, seat) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET seat = excluded.seat, updated_at = CURRENT_TIMESTAMP").bind(name, seat).run();
+}
+
+/** 把這張製作單設為某人的預設角色：把它存好的圖集複製到發佈位置，並（本人的）頭像快照一起換成這套的正面。 */
+export async function makeDefault(job: JobRow, who: Who, request: Request, name: string): Promise<{ avatarSaved: boolean }> {
+  const small = await readAsset(jobKey(job.id, "atlas")), big = await readAsset(jobKey(job.id, "atlas-hd"));
+  if (!small || !big) throw new Error("這套還沒有存好的圖集（舊版製作單），請開啟後重新按「確認上線」一次。");
+  await putAsset(`charpub/${name}/atlas.png`, small, "image/png");
+  await putAsset(`charpub/${name}/atlas-hd.png`, big, "image/png");
+  await setPublished(name, job.id, job.account);
+  await env.DB!.prepare("UPDATE character_jobs SET status = 'published', publish_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(name, job.id).run();
+  let avatarSaved = false;
+  if (job.account === who.account && name === who.name) {
+    const avatar = await readAsset(jobKey(job.id, "avatar"));
+    if (avatar) {
+      let bin = ""; for (const byte of avatar) bin += String.fromCharCode(byte);
+      const result = await designApi("personaAvatarSnapshot", { editorToken: editorTokenOf(request), png: "data:image/png;base64," + btoa(bin), lookKey: `char:${job.id}`, headId: "", outfitId: "" }).catch(() => null);
+      avatarSaved = Boolean(result?.ok);
+    }
+  }
+  return { avatarSaved };
 }
