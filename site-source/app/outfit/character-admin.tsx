@@ -36,6 +36,19 @@ export default function CharacterAdmin({ token, onOpen, refreshKey, canAll = fal
     finally { setBusy(""); }
   }
 
+  async function syncAvatar(id: string) {
+    setBusy(id); setError("");
+    try {
+      const r = await fetch(`/api/character/${id}/default`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const p = await r.json() as { error?: string; avatarSaved?: boolean };
+      if (!r.ok || p.error) throw new Error(p.error || "操作失敗");
+      if (!p.avatarSaved) throw new Error("頭像沒有存進去（可能這個人不是設計師、或你沒有權限替他更新）。");
+      window.alert("頭像已更新，首頁重新整理後就會看到。");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "操作失敗"); }
+    finally { setBusy(""); }
+  }
+
   return <section className="history" style={{ marginTop: 18 }}>
     <div className="section-head"><div className="preview-title"><span className="step">03</span><h2>{canAll ? "角色製作單管理" : "我的角色"}</h2></div><span style={{ display: "flex", gap: 8 }}><button className="open-btn" onClick={() => onOpen("new")}>＋ 新增一套角色</button><button className="refresh" onClick={() => void load()}>重新整理</button></span></div>
     <p className="history-total">{canAll ? "全部人員的角色製作單。「開啟／編輯」可回到三視圖對位、補其餘角度重新修改。" : "每做完一套都會留在這裡，隨時指定哪一套是 3D 辦公室裡的預設角色。"}</p>
@@ -48,6 +61,7 @@ export default function CharacterAdmin({ token, onOpen, refreshKey, canAll = fal
       <div className="lib-actions">{busy === job.id ? <LoaderCircle size={16} className="spin" /> : <>
         <button onClick={() => onOpen(job.id)}>{canAll ? "開啟／編輯" : "查看"}</button>
         {job.status === "published" && !job.publishedAs && <button className="primary" onClick={() => void act(`${job.id}/default`, { method: "POST", body: JSON.stringify({}) }, `把這套設為${job.target || "你"}的預設角色？3D 辦公室與頭像會換成這套。`)}>設為預設</button>}
+        {job.status === "published" && job.publishedAs && <button onClick={() => void syncAvatar(job.id)}>更新頭像</button>}
         {canAll && job.publishedAs && <><select aria-label="改發佈給" defaultValue="" onChange={(e) => { const name = e.target.value; e.target.value = ""; if (name) void act(job.id, { method: "PATCH", body: JSON.stringify({ action: "move", name }) }, `改成發佈給「${name}」？原本的「${job.publishedAs}」會退回舊造型。`); }}><option value="">改發佈給…</option>{targets.filter((n) => n !== job.publishedAs).map((n) => <option key={n} value={n}>{n}</option>)}</select>
           <button onClick={() => void act(job.id, { method: "PATCH", body: JSON.stringify({ action: "unpublish" }) }, `取消「${job.publishedAs}」的上線？3D 辦公室會退回舊造型。`)}>取消上線</button></>}
         {!(job.publishedAs && !canAll) && <button className="danger" onClick={() => void act(job.id, { method: "DELETE" }, `確定刪除這張製作單？圖片會一併刪除${job.publishedAs ? `，「${job.publishedAs}」也會取消上線` : ""}，無法復原。`)}>刪除</button>}</>}</div>
