@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { assetStorageReady, getAsset, putAsset } from "@/lib/storage";
+import { assetStorageReady, deleteAsset, getAsset, putAsset } from "@/lib/storage";
 import { ensureItemsTable } from "@/lib/outfit-items";
 
 // 服裝生成紀錄（2026-10-05）：每次生成（成功與失敗）都記一筆；圖片存在 R2／KV，資料存在 D1。
@@ -58,4 +58,21 @@ export async function outfitHistoryImage(id: string, variant = 0): Promise<Reada
   const row = await env.DB!.prepare("SELECT image_key, variants FROM outfit_history WHERE id = ?").bind(id).first<{ image_key: string; variants: number }>();
   if (!row?.image_key || variant < 0 || variant >= (row.variants || 1)) return null;
   return getAsset(variantKey(id, variant));
+}
+
+/** 管理者編輯紀錄的說明文字。 */
+export async function updateOutfitRecordDescription(id: string, description: string) {
+  await ensureTable();
+  const result = await env.DB!.prepare("UPDATE outfit_history SET description = ? WHERE id = ?").bind(description.slice(0, 1000), id).run();
+  return Boolean(result.meta?.changes);
+}
+
+/** 管理者刪除紀錄（含圖片）。 */
+export async function deleteOutfitRecord(id: string) {
+  await ensureTable();
+  const row = await env.DB!.prepare("SELECT image_key, variants FROM outfit_history WHERE id = ?").bind(id).first<{ image_key: string; variants: number }>();
+  if (!row) return false;
+  if (row.image_key) for (let k = 0; k < Math.max(1, row.variants || 1); k += 1) await deleteAsset(variantKey(id, k)).catch(() => undefined);
+  await env.DB!.prepare("DELETE FROM outfit_history WHERE id = ?").bind(id).run();
+  return true;
 }

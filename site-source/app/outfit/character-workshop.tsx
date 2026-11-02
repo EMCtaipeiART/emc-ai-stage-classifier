@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, LoaderCircle, Upload, UserRound } from "lucide-react";
 import { normalizePhoto } from "@/lib/normalize-photo";
+import SeatPicker from "./seat-picker";
 import {
   ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, splitGrid, toBlob,
   type Adjust, type Canvas, type Measure,
@@ -249,7 +250,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
     </div>}
 
-    {stage === "done" && <div className="persona-card"><p className="persona-hint"><b>已上線！</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。</p></div>}
+    {stage === "done" && <><div className="persona-card"><p className="persona-hint"><b>已上線！</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。下面可以選一個座位；不選就在辦公室自由走動，之後隨時可以回來改。</p></div><SeatPicker token={token} canAll={canAll} defaultName={target || myName} /></>}
   </section>;
 }
 

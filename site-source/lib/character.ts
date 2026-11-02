@@ -11,6 +11,7 @@ export function ensureCharacterTables() {
   if (!env.DB) throw new Error("儲存空間尚未啟用。");
   ready ||= env.DB.batch([
     env.DB.prepare("CREATE TABLE IF NOT EXISTS character_jobs (id TEXT PRIMARY KEY, account TEXT NOT NULL, name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'views3', prompt TEXT NOT NULL DEFAULT '', described TEXT NOT NULL DEFAULT '', start_runs INTEGER NOT NULL DEFAULT 1, angles_json TEXT NOT NULL DEFAULT '{}', align_json TEXT NOT NULL DEFAULT '', cost_usd REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS character_seats (name TEXT PRIMARY KEY, seat TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS character_published (name TEXT PRIMARY KEY, version INTEGER NOT NULL DEFAULT 1, job_id TEXT NOT NULL DEFAULT '', account TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"),
   ]).then(() => undefined).catch((error) => { ready = null; throw error; });
   return ready;
@@ -165,4 +166,38 @@ export async function deleteJob(jobId: string) {
   await unpublishJob(jobId);
   for (const name of ["views3", "sheet", "grid", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
   await env.DB!.prepare("DELETE FROM character_jobs WHERE id = ?").bind(jobId).run();
+}
+
+// ---- 座位（3D 辦公室）：每個發佈角色可以指定一個座位，沒指定就在辦公室自由走動；隨時可以改。 ----
+// 座位編號：五樓 "5:桌子群(0|1):排(0-2):欄(0-2):top|bottom"；四樓 "4:桌子群(0-4):座位(1-8)"。會議室、茶水間不算座位。
+// 固定座位的人（3D 辦公室寫死的 12 位設計部人物）不能被別人佔走。座位資料要和 pixel-plaza/index.html 的 SEATS／SEATS4 一致。
+export const FIXED_SEATS: Record<string, string> = {
+  Leona: "5:0:2:0:top", Amber: "5:0:2:1:top", Noise: "5:0:2:2:top", Anna: "5:0:2:1:bottom", Machi: "5:0:2:2:bottom",
+  吳冠賢: "5:1:2:0:bottom", 廖秦葦: "5:1:2:0:top", 李明庭: "5:1:2:1:top",
+  黎子瑄: "4:3:8", 余采馨: "4:3:6", 鄭筱舢: "4:3:7", 王藍庭: "4:4:5",
+};
+export const validSeat = (seat: string) => {
+  const five = /^5:([01]):([0-2]):([0-2]):(top|bottom)$/.exec(seat);
+  if (five) return true;
+  const four = /^4:([0-4]):([1-8])$/.exec(seat);
+  return Boolean(four);
+};
+
+export async function seatMap(): Promise<Record<string, string>> {
+  await ensureCharacterTables();
+  const { results } = await env.DB!.prepare("SELECT name, seat FROM character_seats WHERE seat != ''").all<{ name: string; seat: string }>();
+  return Object.fromEntries((results || []).map((row) => [row.name, row.seat]));
+}
+
+/** 設定座位（空字串＝清除、自由走動）。座位已被固定人物或別人佔用會丟錯。 */
+export async function setSeat(name: string, seat: string) {
+  await ensureCharacterTables();
+  if (seat) {
+    if (!validSeat(seat)) throw new Error("座位編號不正確。");
+    const fixed = Object.entries(FIXED_SEATS).find(([, s]) => s === seat);
+    if (fixed && fixed[0] !== name) throw new Error(`這個座位是 ${fixed[0]} 的固定座位。`);
+    const taken = Object.entries(await seatMap()).find(([n, s]) => s === seat && n !== name);
+    if (taken) throw new Error(`這個座位已經是 ${taken[0]} 的了。`);
+  }
+  await env.DB!.prepare("INSERT INTO character_seats (name, seat) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET seat = excluded.seat, updated_at = CURRENT_TIMESTAMP").bind(name, seat).run();
 }

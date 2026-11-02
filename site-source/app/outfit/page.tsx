@@ -8,6 +8,7 @@ import HeadStudio from "./head-studio";
 import { type PersonaState } from "./persona-wizard";
 import CharacterWorkshop from "./character-workshop";
 import CharacterAdmin from "./character-admin";
+import SeatPicker from "./seat-picker";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
@@ -159,7 +160,7 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 export default function OutfitPage() {
   const [workshopOpen, setWorkshopOpen] = useState("");
   const [workshopTick, setWorkshopTick] = useState(0);
-  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop">("outfit");
+  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop" | "seat">("outfit");
   // 管理者與 Machi：可以看、編輯全部人員的「我的服裝」
   const [libScope, setLibScope] = useState<"mine" | "all">("mine");
   const [libOwner, setLibOwner] = useState("");
@@ -317,6 +318,19 @@ export default function OutfitPage() {
       if (!response.ok) throw new Error(payload.error || "讀取紀錄失敗");
       setRecords(payload.items || []); setTotals(payload.totals || { runs: 0, ok: 0, tokens: 0, costUsd: 0 }); setHistoryError("");
     } catch (cause) { setHistoryError(cause instanceof Error ? cause.message : "讀取紀錄失敗"); }
+  }
+  async function editRecord(record: HistoryRecord) {
+    const next = window.prompt("編輯這筆紀錄的說明：", record.description);
+    if (next === null || next.trim() === record.description) return;
+    const response = await fetch(`/api/outfit/history/${record.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ description: next }) });
+    if (!response.ok) { setHistoryError(((await response.json().catch(() => ({}))) as { error?: string }).error || "編輯失敗"); return; }
+    void loadHistory();
+  }
+  async function removeRecord(record: HistoryRecord) {
+    if (!window.confirm("確定刪除這筆生成紀錄？圖片會一併刪除，無法復原（累計費用也會跟著減少）。")) return;
+    const response = await fetch(`/api/outfit/history/${record.id}`, { method: "DELETE", headers: authHeaders() });
+    if (!response.ok) { setHistoryError(((await response.json().catch(() => ({}))) as { error?: string }).error || "刪除失敗"); return; }
+    void loadHistory();
   }
   function openRecord(record: HistoryRecord) {
     if (!record.imageUrl) return;
@@ -558,8 +572,8 @@ export default function OutfitPage() {
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
       {showWizard && wizardView && persona ? <CharacterWorkshop token={token} departmentLabel={personaDept || "你的部門"} canAll={canAll} onPublished={() => { setPersona({ ...persona, completed: true, step: "done" }); }}/> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
-      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ...(canAll ? [["workshop", "角色工坊", <UserRound key="w" size={15} />]] : [])] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
-      {mode === "workshop" ? <><CharacterAdmin token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} /><CharacterWorkshop key={workshopOpen || "mine"} token={token} departmentLabel="管理者測試" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
+      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ...(canAll ? [["workshop", "角色工坊", <UserRound key="w" size={15} />]] : []), ["seat", "座位", <Crown key="s" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop" | "seat", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
+      {mode === "seat" ? <SeatPicker token={token} canAll={canAll} /> : mode === "workshop" ? <><CharacterAdmin token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} /><CharacterWorkshop key={workshopOpen || "mine"} token={token} departmentLabel="管理者測試" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
@@ -663,6 +677,7 @@ export default function OutfitPage() {
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
             {record.described && record.description && <small>AI 讀到的衣服：{record.described}</small>}</div>
           {record.imageUrl && <button className="open-btn" onClick={() => openRecord(record)}>重新打開</button>}
+          {canAll && <span style={{ display: "flex", gap: 6 }}><button className="open-btn" onClick={() => void editRecord(record)}>編輯</button><button className="open-btn" style={{ color: "#c0392b" }} onClick={() => void removeRecord(record)}>刪除</button></span>}
         </article>)}</div>}
       </section>
       {wallet?.designer && <section className="history">
