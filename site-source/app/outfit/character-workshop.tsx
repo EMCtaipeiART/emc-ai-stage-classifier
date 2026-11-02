@@ -66,7 +66,11 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   useEffect(() => {
     if (!token) return;   // token 要等網址參數讀進來才有；沒有 token 就先不打 API（否則會多出一則「沒有登入資訊」的紅字）
     setError("");
-    if (openId === "new") { setStage("upload"); return; }   // 「新增一套角色」：不接續舊的製作單
+    if (!openId || openId === "new") {   // 進來預設就是「新增一套角色」：不再載入上一次的製作單（圖多、讀很久）；舊的從下方管理表開啟
+      setStage("upload");
+      void fetch("/api/character/seat", { headers: auth, cache: "no-store" }).then((r) => r.json()).then((p: { me?: string; targets?: string[] }) => { setMyName(p.me || ""); setTargets(p.targets || []); }).catch(() => undefined);
+      return;
+    }
     (async () => {
       try {
         const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
