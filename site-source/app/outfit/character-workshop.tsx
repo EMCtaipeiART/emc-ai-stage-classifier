@@ -13,7 +13,7 @@ import {
 const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
 const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
 type JobInfo = { id: string; status: string; startRuns: number; angles: Record<string, number> };
-type Props = { token: string; departmentLabel: string; canAll?: boolean; onPublished?: () => void };
+type Props = { token: string; departmentLabel: string; canAll?: boolean; openId?: string; onPublished?: () => void };
 // 管理者發佈時要指定「這套是給誰的」：名單由後端（後台資料庫「帳號設定」）提供
 
 async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
@@ -25,7 +25,7 @@ async function postJson<T>(url: string, token: string, body: BodyInit, json = fa
   return payload;
 }
 
-export default function CharacterWorkshop({ token, departmentLabel, canAll = false, onPublished }: Props) {
+export default function CharacterWorkshop({ token, departmentLabel, canAll = false, openId = "", onPublished }: Props) {
   const auth = useMemo(() => ({ "x-emc-editor-token": token }), [token]);
   const [job, setJob] = useState<JobInfo | null>(null);
   const [stage, setStage] = useState<"loading" | "upload" | "align" | "angles" | "review" | "done">("loading");
@@ -59,7 +59,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch("/api/character", { headers: auth, cache: "no-store" });
+        const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
         const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string; targets?: string[] };
         setMyName(p.name || ""); setTargets(p.targets || []);
         if (p.error) throw new Error(p.error);

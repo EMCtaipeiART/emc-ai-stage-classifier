@@ -1,5 +1,5 @@
 import { buildViews3Prompt, describePerson, editImage, sniffImageMime, turntableReference } from "@/lib/character-ai";
-import { ensureCharacterTables, FREE_START_RUNS, heartbeatJson, jobKey, ownJob, putAsset, requireWho, updateJob } from "@/lib/character";
+import { ensureCharacterTables, FREE_START_RUNS, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, requireWho, updateJob } from "@/lib/character";
 import { canManageAll } from "@/lib/coins-client";
 import { env } from "cloudflare:workers";
 
@@ -37,9 +37,19 @@ export async function POST(request: Request) {
   }
 
   return heartbeatJson(async () => {
-    const described = await describePerson(apiKey, bytes, mime);
-    const reference = await turntableReference();
-    const { png, costUsd } = await editImage(apiKey, { prompt: buildViews3Prompt(described, notes), images: [{ bytes: reference, type: "image/png", name: "turntable-reference.png" }] });
+    const started = Date.now(), secs = () => Math.round((Date.now() - started) / 100) / 10;
+    let described = "";
+    let result: Awaited<ReturnType<typeof editImage>>;
+    try {
+      described = await describePerson(apiKey, bytes, mime);
+      const reference = await turntableReference();
+      result = await editImage(apiKey, { prompt: buildViews3Prompt(described, notes), images: [{ bytes: reference, type: "image/png", name: "turntable-reference.png" }] });
+    } catch (cause) {
+      await logGeneration({ userId: who.name || who.account, label: "三視圖", description: notes, described, seconds: secs(), jobId: id, error: cause instanceof Error ? cause.message : "生成失敗" });
+      throw cause;
+    }
+    const { png, costUsd } = result;
+    await logGeneration({ userId: who.name || who.account, label: "三視圖", description: notes, described, seconds: secs(), jobId: id, png, costUsd, usage: result.usage, model: result.model, transparent: result.transparent });
     await putAsset(jobKey(id, "views3"), png, "image/png");
     const row = await env.DB!.prepare("SELECT start_runs FROM character_jobs WHERE id = ?").bind(id).first<{ start_runs: number }>();
     await updateJob(id, { status: "views3", described, addCost: costUsd, startRuns: (row?.start_runs ?? 0) + 1, anglesJson: "{}", alignJson: "" });

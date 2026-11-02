@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
-import { getAsset, putAsset } from "@/lib/storage";
+import { deleteAsset, getAsset, putAsset } from "@/lib/storage";
+import { saveOutfitRecord } from "@/lib/outfit-history";
+import { IMAGE_MODEL_DEFAULT } from "@/lib/outfit-spec";
 import { canManageAll, whoami, type Who } from "@/lib/coins-client";
 
 // 角色工坊（2026-11-02）：上傳照片 → AI 三視圖 → 對位確認 → AI 補其餘 8 個角度 → 烘焙 12 視角圖集 → 發佈給 3D 辦公室。
@@ -97,3 +99,56 @@ export function heartbeatJson(work: () => Promise<unknown>): Response {
 
 export const PNG_HEADERS = { "Content-Type": "image/png", "Cache-Control": "no-store" } as const;
 export const isPng = (b: Uint8Array) => b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+
+/** 每次 AI 呼叫（成功或失敗）都記進「生成紀錄」（和服裝生成同一張表），描述前面加 [角色工坊・…] 方便辨認。記錄失敗不影響生成。 */
+export async function logGeneration(opts: { userId: string; label: string; description: string; described?: string; seconds: number; jobId: string; png?: Uint8Array; costUsd?: number; usage?: { input: number; output: number; total: number }; model?: string; transparent?: boolean; error?: string }) {
+  try {
+    await saveOutfitRecord({
+      id: crypto.randomUUID(), userId: opts.userId, status: opts.error ? "failed" : "ok", model: opts.model || process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT, quality: "high",
+      description: `[角色工坊・${opts.label}] ${opts.description}`, described: opts.described || "", photoCount: opts.label === "三視圖" ? 1 : 0, seconds: opts.seconds,
+      usage: { input: opts.usage?.input ?? 0, output: opts.usage?.output ?? 0, total: opts.usage?.total ?? 0, costUsd: opts.costUsd ?? 0 },
+      transparent: opts.transparent ?? true, error: opts.error || "", pngs: opts.png ? [opts.png] : [], coinCost: 0, coinExempt: true, itemId: opts.jobId, attempt: 1,
+    });
+  } catch { /* 紀錄寫入失敗就算了 */ }
+}
+
+export async function listAllJobs() {
+  await ensureCharacterTables();
+  const { results } = await env.DB!.prepare("SELECT j.*, p.name AS published_as FROM character_jobs j LEFT JOIN character_published p ON p.job_id = j.id ORDER BY j.created_at DESC LIMIT 100").all<JobRow & { published_as: string | null }>();
+  return (results || []).map((row) => {
+    let done = 0; try { done = Object.keys(JSON.parse(row.angles_json || "{}")).length; } catch { /* 略過 */ }
+    return { id: row.id, account: row.account, ownerName: row.name, status: row.status, prompt: row.prompt, startRuns: row.start_runs, anglesDone: done, costUsd: row.cost_usd, createdAt: row.created_at, updatedAt: row.updated_at, publishedAs: row.published_as || "" };
+  });
+}
+
+/** 取消上線：3D 辦公室下次載入就退回本機圖集。 */
+export async function unpublishJob(jobId: string) {
+  await ensureCharacterTables();
+  const rows = await env.DB!.prepare("SELECT name FROM character_published WHERE job_id = ?").bind(jobId).all<{ name: string }>();
+  for (const row of rows.results || []) {
+    await deleteAsset(`charpub/${row.name}/atlas.png`).catch(() => undefined);
+    await deleteAsset(`charpub/${row.name}/atlas-hd.png`).catch(() => undefined);
+  }
+  await env.DB!.prepare("DELETE FROM character_published WHERE job_id = ?").bind(jobId).run();
+}
+
+/** 把已發佈的圖集改發佈給另一個人（原本那位退回本機圖集）。 */
+export async function moveJobPublish(jobId: string, account: string, to: string) {
+  await ensureCharacterTables();
+  const from = await env.DB!.prepare("SELECT name FROM character_published WHERE job_id = ?").bind(jobId).first<{ name: string }>();
+  if (!from) throw new Error("這張製作單還沒有發佈。");
+  if (from.name === to) return;
+  for (const file of ["atlas", "atlas-hd"]) {
+    const bytes = await readAsset(`charpub/${from.name}/${file}.png`);
+    if (!bytes) throw new Error("找不到已發佈的圖集。");
+    await putAsset(`charpub/${to}/${file}.png`, bytes, "image/png");
+  }
+  await unpublishJob(jobId);
+  await setPublished(to, jobId, account);
+}
+
+export async function deleteJob(jobId: string) {
+  await unpublishJob(jobId);
+  for (const name of ["views3", "sheet", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
+  await env.DB!.prepare("DELETE FROM character_jobs WHERE id = ?").bind(jobId).run();
+}

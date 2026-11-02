@@ -87,7 +87,7 @@ export function costOf(usage: ImageUsage | undefined) {
 }
 
 /** 呼叫 images/edits 生成一張圖；回傳 PNG 位元組與估計費用。 */
-export async function editImage(apiKey: string, opts: { prompt: string; images: Array<{ bytes: Uint8Array; type: string; name: string }>; size?: "3views" | "square" }): Promise<{ png: Uint8Array; costUsd: number }> {
+export async function editImage(apiKey: string, opts: { prompt: string; images: Array<{ bytes: Uint8Array; type: string; name: string }>; size?: "3views" | "square" }): Promise<{ png: Uint8Array; costUsd: number; model: string; transparent: boolean; usage: { input: number; output: number; total: number } }> {
   const model = process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT;
   const build = (transparent: boolean) => {
     const body = new FormData();
@@ -103,13 +103,14 @@ export async function editImage(apiKey: string, opts: { prompt: string; images: 
   };
   type Payload = { data?: Array<{ b64_json?: string }>; usage?: ImageUsage; error?: { message?: string } };
   const call = (transparent: boolean) => fetch("https://api.openai.com/v1/images/edits", { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: build(transparent), signal: AbortSignal.timeout(420_000) });
+  let transparent = true;
   let response = await call(true);
   let payload = await response.json().catch(() => ({})) as Payload;
-  if (!response.ok && /background|transparen/i.test(payload.error?.message || "")) { response = await call(false); payload = await response.json().catch(() => ({})) as Payload; }
+  if (!response.ok && /background|transparen/i.test(payload.error?.message || "")) { transparent = false; response = await call(false); payload = await response.json().catch(() => ({})) as Payload; }
   if (!response.ok) throw new Error(friendlyError(response.status, payload.error?.message || ""));
   const b64 = payload.data?.[0]?.b64_json;
   if (!b64) throw new Error("OpenAI 沒有回傳圖片，請再試一次。");
   const binary = atob(b64), png = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) png[i] = binary.charCodeAt(i);
-  return { png, costUsd: costOf(payload.usage) };
+  return { png, costUsd: costOf(payload.usage), model, transparent, usage: { input: payload.usage?.input_tokens ?? 0, output: payload.usage?.output_tokens ?? 0, total: (payload.usage?.input_tokens ?? 0) + (payload.usage?.output_tokens ?? 0) } };
 }

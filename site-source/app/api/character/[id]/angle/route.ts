@@ -1,5 +1,5 @@
 import { buildAnglePrompt, editImage, turntableReference } from "@/lib/character-ai";
-import { AI_ANGLES, angleName, heartbeatJson, jobKey, ownJob, putAsset, readAsset, requireWho, updateJob } from "@/lib/character";
+import { AI_ANGLES, angleName, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, readAsset, requireWho, updateJob } from "@/lib/character";
 import { canManageAll } from "@/lib/coins-client";
 
 export const runtime = "edge";
@@ -24,7 +24,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   return heartbeatJson(async () => {
     const reference = await turntableReference();
-    const { png, costUsd } = await editImage(apiKey, { prompt: buildAnglePrompt(deg, job.described), images: [{ bytes: sheet, type: "image/png", name: "sheet.png" }, { bytes: reference, type: "image/png", name: "turntable-reference.png" }], size: "square" });
+    const started = Date.now(), secs = () => Math.round((Date.now() - started) / 100) / 10, userId = auth.who.name || auth.who.account;
+    let result: Awaited<ReturnType<typeof editImage>>;
+    try {
+      result = await editImage(apiKey, { prompt: buildAnglePrompt(deg, job.described), images: [{ bytes: sheet, type: "image/png", name: "sheet.png" }, { bytes: reference, type: "image/png", name: "turntable-reference.png" }], size: "square" });
+    } catch (cause) {
+      await logGeneration({ userId, label: `${deg}°`, description: job.prompt, seconds: secs(), jobId: id, error: cause instanceof Error ? cause.message : "生成失敗" });
+      throw cause;
+    }
+    const { png, costUsd } = result;
+    await logGeneration({ userId, label: `${deg}°`, description: job.prompt, seconds: secs(), jobId: id, png, costUsd, usage: result.usage, model: result.model, transparent: result.transparent });
     await putAsset(jobKey(id, angleName(deg)), png, "image/png");
     counts[deg] = (counts[deg] || 0) + 1;
     await updateJob(id, { anglesJson: JSON.stringify(counts), addCost: costUsd });

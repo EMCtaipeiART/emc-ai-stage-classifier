@@ -15,6 +15,11 @@ export async function putAsset(key: string, data: Uint8Array | ArrayBuffer, cont
   }
 }
 
+export async function deleteAsset(key: string) {
+  if (env.BUCKET) await env.BUCKET.delete(key);
+  else if (env.ASSETS_KV) await env.ASSETS_KV.delete(key);
+}
+
 export async function getAsset(key: string): Promise<ReadableStream | null> {
   if (env.BUCKET) return (await env.BUCKET.get(key))?.body ?? null;
   if (env.ASSETS_KV) return env.ASSETS_KV.get(key, "stream");
