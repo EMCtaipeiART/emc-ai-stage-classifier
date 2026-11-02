@@ -27,6 +27,9 @@ export function canUseCharacterStudio(who: Who) {
   return canManageAll(who) || who.designer || who.pixelDesigner || /企劃部|專案部|設計部/.test(who.department || "");
 }
 
+/** 管理者可以把角色發佈給誰：後台資料庫「帳號設定」的名單（設計部 12 人＋企劃部、專案部、顧問同仁），加上自己。 */
+export const publishTargets = (who: Who) => [...new Set([...who.directory, who.name].filter(Boolean))];
+
 export async function requireWho(request: Request): Promise<{ who: Who } | { error: Response }> {
   const who = await whoami(request);
   if (!who) return { error: Response.json({ error: "登入已過期，請回設計需求系統重新登入後再進入。", reason: "TOKEN_EXPIRED" }, { status: 401 }) };

@@ -14,8 +14,7 @@ const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
 const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
 type JobInfo = { id: string; status: string; startRuns: number; angles: Record<string, number> };
 type Props = { token: string; departmentLabel: string; canAll?: boolean; onPublished?: () => void };
-// 3D 辦公室目前有的 12 位人物；管理者發佈時要指定「這套是給誰的」
-const PEOPLE = ["Amber", "Anna", "Leona", "Machi", "Noise", "余采馨", "吳冠賢", "廖秦葦", "李明庭", "鄭筱舢", "黎子瑄", "王藍庭"];
+// 管理者發佈時要指定「這套是給誰的」：名單由後端（後台資料庫「帳號設定」）提供
 
 async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
   const response = await fetch(url, { method: "POST", headers: { "x-emc-editor-token": token, ...(json ? { "Content-Type": "application/json" } : {}) }, body });
@@ -43,6 +42,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   const [turn, setTurn] = useState(0);
   const [myName, setMyName] = useState("");
   const [target, setTarget] = useState("");
+  const [targets, setTargets] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const preview = useMemo(() => file ? URL.createObjectURL(file) : "", [file]);
   const stepIndex = stage === "upload" || stage === "loading" ? 0 : stage === "align" ? 1 : stage === "angles" ? 2 : 3;
@@ -60,8 +60,8 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     (async () => {
       try {
         const r = await fetch("/api/character", { headers: auth, cache: "no-store" });
-        const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string };
-        setMyName(p.name || "");
+        const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string; targets?: string[] };
+        setMyName(p.name || ""); setTargets(p.targets || []);
         if (p.error) throw new Error(p.error);
         if (!p.job) { setStage("upload"); return; }
         setJob(p.job);
@@ -220,7 +220,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <p style={{ textAlign: "center", fontWeight: 700 }}>{turn * 30}°</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>{frames.map((f, k) => f ? <button key={k} onClick={() => setTurn(k)} style={{ border: k === turn ? "2px solid #2fbf57" : "2px solid transparent", borderRadius: 8, padding: 2, background: "#fff" }}><Thumb canvas={f} /><small>{k * 30}°</small></button> : null)}</div>
       {AI_ANGLES.includes(turn * 30) && <button onClick={() => void fillAngles(turn * 30)} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={16} className="spin" /> : `重算 ${turn * 30}° 這個角度（已用 ${job?.angles[turn * 30] ?? 1} 次）`}</button>}
-      {canAll && <label className="field-label" style={{ display: "block", marginTop: 12 }}>發佈給誰（管理者必選）<select value={target} onChange={(e) => setTarget(e.target.value)} style={{ display: "block", width: "100%", marginTop: 4, padding: 8, borderRadius: 10 }}><option value="">請選擇人物…</option>{PEOPLE.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
+      {canAll && <label className="field-label" style={{ display: "block", marginTop: 12 }}>發佈給誰（管理者必選）<select value={target} onChange={(e) => setTarget(e.target.value)} style={{ display: "block", width: "100%", marginTop: 4, padding: 8, borderRadius: 10 }}><option value="">請選擇人物…</option>{targets.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
       <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
     </div>}
 
