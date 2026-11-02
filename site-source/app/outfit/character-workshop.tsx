@@ -68,7 +68,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     setError("");
     if (!openId || openId === "new") {   // 進來預設就是「新增一套角色」：不再載入上一次的製作單（圖多、讀很久）；舊的從下方管理表開啟
       setStage("upload");
-      void fetch("/api/character/seat", { headers: auth, cache: "no-store" }).then((r) => r.json()).then((p: { me?: string; targets?: string[] }) => { setMyName(p.me || ""); setTargets(p.targets || []); }).catch(() => undefined);
+      void fetch("/api/character/seat", { headers: auth, cache: "no-store" }).then((r) => r.json() as Promise<{ me?: string; targets?: string[] }>).then((p) => { setMyName(p.me || ""); setTargets(p.targets || []); }).catch(() => undefined);
       return;
     }
     (async () => {
