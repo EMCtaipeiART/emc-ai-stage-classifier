@@ -140,9 +140,12 @@ export const toBlob = (c: Canvas) => new Promise<Blob>((resolve, reject) => c.to
 
 /** 頭像快照：正面格上方的頭與肩膀，裁成正方形。 */
 export function avatarOf(frontCell: Canvas, size = 160): string {
-  const m = measure(frontCell)!, side = Math.round(m.h * 0.9), out = mk(size, size), g = out.getContext("2d")!;
+  const m = measure(frontCell)!, side = Math.round(m.h * 0.8), out = mk(size, size), g = out.getContext("2d")!;
   g.imageSmoothingQuality = "high";
-  g.drawImage(frontCell, Math.round(m.cx - side / 2), m.y0 - Math.round(side * 0.08), side, side, 0, 0, size, size);
+  // 以頭的水平中心置中、髮頂留 10%：Q 版大頭（頭約占身高四成）才會落在圓形頭像框的正中間
+  const sx = Math.round(m.headCx - side / 2), sy = m.y0 - Math.round(side * 0.1);
+  const tile = mk(side, side); tile.getContext("2d")!.drawImage(frontCell, -sx, -sy);
+  g.drawImage(tile, 0, 0, side, side, 0, 0, size, size);
   return out.toDataURL("image/png");
 }
 
