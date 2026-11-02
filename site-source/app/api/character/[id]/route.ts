@@ -14,7 +14,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     if (body.action === "unpublish") { await unpublishJob(id); }
     else if (body.action === "move") {
       const name = String(body.name || "").trim();
-      if (!publishTargets(auth.who).includes(name)) return Response.json({ error: "這個名字不在帳號設定的名單裡。" }, { status: 400 });
+      if (!(await publishTargets(auth.who, request)).includes(name)) return Response.json({ error: "這個名字不在帳號設定的名單裡。" }, { status: 400 });
       await moveJobPublish(id, job.account, name);
     } else return Response.json({ error: "不支援的操作。" }, { status: 400 });
   } catch (cause) { return Response.json({ error: cause instanceof Error ? cause.message : "操作失敗" }, { status: 400 }); }

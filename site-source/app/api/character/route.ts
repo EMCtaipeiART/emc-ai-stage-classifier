@@ -7,8 +7,8 @@ export async function GET(request: Request) {
   if ("error" in auth) return auth.error;
   await ensureCharacterTables();
   const url = new URL(request.url);
-  if (canManageAll(auth.who) && url.searchParams.get("all") === "1") return Response.json({ jobs: await listAllJobs(), targets: publishTargets(auth.who) }, { headers: { "Cache-Control": "no-store" } });
+  if (canManageAll(auth.who) && url.searchParams.get("all") === "1") return Response.json({ jobs: await listAllJobs(), targets: await publishTargets(auth.who, request) }, { headers: { "Cache-Control": "no-store" } });
   const openId = canManageAll(auth.who) ? url.searchParams.get("id") : "";
   const job = openId ? await getJob(openId) : await latestJob(auth.who.account);
-  return Response.json({ job: job ? jobPublic(job) : null, name: auth.who.name, targets: canManageAll(auth.who) ? publishTargets(auth.who) : [] }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ job: job ? jobPublic(job) : null, name: auth.who.name, targets: canManageAll(auth.who) ? await publishTargets(auth.who, request) : [] }, { headers: { "Cache-Control": "no-store" } });
 }

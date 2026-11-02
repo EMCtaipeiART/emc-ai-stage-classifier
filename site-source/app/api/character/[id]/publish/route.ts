@@ -18,7 +18,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   // 圖集發佈給哪個名字：一般同仁只能發佈給自己；管理者與 Machi 可以指定 3D 辦公室裡的任何一位（自己沒有設計師名字也能測試）
   const asked = String(form?.get("name") || "").trim();
   const name = canManageAll(who) ? asked : who.name;
-  if (canManageAll(who) && asked && !publishTargets(who).includes(asked)) return Response.json({ error: "這個名字不在帳號設定的名單裡。" }, { status: 400 });
+  if (canManageAll(who) && asked && !(await publishTargets(who, request)).includes(asked)) return Response.json({ error: "這個名字不在帳號設定的名單裡。" }, { status: 400 });
   if (!name || name.length > 40 || /[\\/?#]/.test(name)) return Response.json({ error: canManageAll(who) ? "請先選擇這套角色要發佈給誰。" : "找不到你的人物名字，請聯絡管理者。" }, { status: 400 });
   await putAsset(`charpub/${name}/atlas.png`, small, "image/png");
   await putAsset(`charpub/${name}/atlas-hd.png`, big, "image/png");

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { deleteAsset, getAsset, putAsset } from "@/lib/storage";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { IMAGE_MODEL_DEFAULT } from "@/lib/outfit-spec";
-import { canManageAll, whoami, type Who } from "@/lib/coins-client";
+import { canManageAll, designApi, editorTokenOf, whoami, type Who } from "@/lib/coins-client";
 
 // 角色工坊（2026-11-02）：上傳照片 → AI 三視圖 → 對位確認 → AI 補其餘 8 個角度 → 烘焙 12 視角圖集 → 發佈給 3D 辦公室。
 // 資料表第一次用到才建（原因同 outfit-history.ts）。圖檔存 R2／KV：char/<jobId>/<name>.png、發佈版 charpub/<人名>/<檔名>。
@@ -29,8 +29,12 @@ export function canUseCharacterStudio(who: Who) {
   return canManageAll(who) || who.designer || who.pixelDesigner || /企劃部|專案部|設計部/.test(who.department || "");
 }
 
-/** 管理者可以把角色發佈給誰：後台資料庫「帳號設定」的名單（設計部 12 人＋企劃部、專案部、顧問同仁），加上自己。 */
-export const publishTargets = (who: Who) => [...new Set([...who.directory, who.name].filter(Boolean))];
+/** 管理者可以把角色發佈給誰：後台資料庫「帳號設定」裡全部人員（所有部門），加上 Pixel Office 12 人與自己。 */
+export async function publishTargets(who: Who, request: Request): Promise<string[]> {
+  const roster = await designApi("characterRoster", { editorToken: editorTokenOf(request) }).catch(() => null);
+  const names = roster?.ok && Array.isArray(roster.names) ? (roster.names as unknown[]).map(String) : who.directory;   // 後端還沒更新時退回舊名單
+  return [...new Set([...names, who.name].filter(Boolean))];
+}
 
 export async function requireWho(request: Request): Promise<{ who: Who } | { error: Response }> {
   const who = await whoami(request);
