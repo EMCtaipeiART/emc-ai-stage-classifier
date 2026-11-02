@@ -160,7 +160,7 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 export default function OutfitPage() {
   const [workshopOpen, setWorkshopOpen] = useState("");
   const [workshopTick, setWorkshopTick] = useState(0);
-  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop" | "seat">("outfit");
+  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop" | "seat">("workshop");
   // 管理者與 Machi：可以看、編輯全部人員的「我的服裝」
   const [libScope, setLibScope] = useState<"mine" | "all">("mine");
   const [libOwner, setLibOwner] = useState("");
@@ -507,7 +507,7 @@ export default function OutfitPage() {
   }, [persona?.completed, persona?.outfitItemId, library, token, headsImg]);
   /** 個人形象：直接打開指定的身體製作單，進入拼接（頭像用剛存好的那一個）。 */
   async function openOutfitById(id: string) {
-    setMode("outfit"); setWizardView(false); setPersonaHeadOpen("");
+    setMode("workshop"); setWizardView(false); setPersonaHeadOpen("");
     try {
       const list = await fetch("/api/outfit/items", { headers: authHeaders() }).then((r) => r.json()) as { items?: Item[] };
       const target = list.items?.find((entry) => entry.id === id);
@@ -572,8 +572,8 @@ export default function OutfitPage() {
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
       {showWizard && wizardView && persona ? <CharacterWorkshop token={token} departmentLabel={personaDept || "你的部門"} canAll={canAll} onPublished={() => { setPersona({ ...persona, completed: true, step: "done" }); }}/> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
-      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["outfit", "服裝", <Shirt key="o" size={15} />], ["head", "頭像", <UserRound key="h" size={15} />], ...(canAll ? [["workshop", "角色工坊", <UserRound key="w" size={15} />]] : []), ["seat", "座位", <Crown key="s" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop" | "seat", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
-      {mode === "seat" ? <SeatPicker token={token} canAll={canAll} /> : mode === "workshop" ? <><CharacterAdmin token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} /><CharacterWorkshop key={workshopOpen || "mine"} token={token} departmentLabel="管理者測試" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
+      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["workshop", "角色工坊", <UserRound key="w" size={15} />], ["seat", "座位", <Crown key="s" size={15} />], ...(canAll ? [["outfit", "生成紀錄", <Shirt key="o" size={15} />]] : [])] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop" | "seat", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
+      {mode === "seat" ? <SeatPicker token={token} canAll={canAll} /> : mode === "workshop" ? <>{canAll && <CharacterAdmin token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} />}<CharacterWorkshop key={workshopOpen || "mine"} token={token} departmentLabel="設計部、企劃部、專案部" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
