@@ -199,6 +199,14 @@ export async function setSeat(name: string, seat: string) {
   await env.DB!.prepare("INSERT INTO character_seats (name, seat) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET seat = excluded.seat, updated_at = CURRENT_TIMESTAMP").bind(name, seat).run();
 }
 
+/** 存頭像快照：設計師（元宇宙名單裡的人）走元宇宙的快照，企劃／專案同仁走個人形象的快照（兩邊後端規則不同，設計師用後者會被擋）。 */
+export async function saveAvatarSnapshot(request: Request, who: Who, png: string, lookKey: string): Promise<boolean> {
+  const result = who.pixelDesigner || who.designer
+    ? await designApi("pixelOfficeAvatarSnapshot", { token: editorTokenOf(request), png, lookKey }).catch(() => null)
+    : await designApi("personaAvatarSnapshot", { editorToken: editorTokenOf(request), png, lookKey, headId: "", outfitId: "" }).catch(() => null);
+  return Boolean(result?.ok);
+}
+
 /** 把這張製作單設為某人的預設角色：把它存好的圖集複製到發佈位置，並（本人的）頭像快照一起換成這套的正面。 */
 export async function makeDefault(job: JobRow, who: Who, request: Request, name: string): Promise<{ avatarSaved: boolean }> {
   const small = await readAsset(jobKey(job.id, "atlas")), big = await readAsset(jobKey(job.id, "atlas-hd"));
@@ -212,8 +220,7 @@ export async function makeDefault(job: JobRow, who: Who, request: Request, name:
     const avatar = await readAsset(jobKey(job.id, "avatar"));
     if (avatar) {
       let bin = ""; for (const byte of avatar) bin += String.fromCharCode(byte);
-      const result = await designApi("personaAvatarSnapshot", { editorToken: editorTokenOf(request), png: "data:image/png;base64," + btoa(bin), lookKey: `char:${job.id}`, headId: "", outfitId: "" }).catch(() => null);
-      avatarSaved = Boolean(result?.ok);
+      avatarSaved = await saveAvatarSnapshot(request, who, "data:image/png;base64," + btoa(bin), `char:${job.id}`);
     }
   }
   return { avatarSaved };

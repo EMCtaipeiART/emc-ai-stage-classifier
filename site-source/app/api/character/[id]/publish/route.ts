@@ -1,6 +1,6 @@
 import { canManageAll, designApi, editorTokenOf } from "@/lib/coins-client";
 import { env } from "cloudflare:workers";
-import { isPng, jobKey, ownJob, publishTargets, putAsset, requireWho, setPublished, updateJob } from "@/lib/character";
+import { saveAvatarSnapshot, isPng, jobKey, ownJob, publishTargets, putAsset, requireWho, setPublished, updateJob } from "@/lib/character";
 import { upsertPersona } from "@/lib/persona";
 
 /** 發佈：前端烘焙好的 12 視角圖集（一般 60px 格、高清 240px 格）存到雲端，3D 辦公室下次載入就會用；同時更新頭像快照並結束新人精靈。 */
@@ -32,8 +32,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (job.account === who.account && name === who.name) await upsertPersona(job.account, name, { step: "done", complete: true }).catch(() => undefined);
   let avatarSaved = false;
   if (avatar.startsWith("data:image/png;base64,") && job.account === who.account && name === who.name) {
-    const result = await designApi("personaAvatarSnapshot", { editorToken: editorTokenOf(request), png: avatar, lookKey: `char:${id}`, headId: "", outfitId: "" }).catch(() => null);
-    avatarSaved = Boolean(result?.ok);
+    avatarSaved = await saveAvatarSnapshot(request, who, avatar, `char:${id}`);
   }
   return Response.json({ ok: true, name, avatarSaved });
 }
