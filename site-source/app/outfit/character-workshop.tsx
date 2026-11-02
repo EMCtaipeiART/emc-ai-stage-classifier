@@ -226,7 +226,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
 
     {stage === "loading" && <div className="preview" style={{ marginTop: 14 }}><LoaderCircle className="spin" size={20} /> 讀取中…</div>}
 
-    {stage === "upload" && <div className="workspace">
+    {stage === "upload" && <div className="workspace" style={{ gridTemplateColumns: "1fr", marginTop: 14 }}>
       <section className="control">
         <div className="section-head"><span className="step">01</span><h2>{job ? "重新生成三視圖" : "上傳照片，生成角色"}</h2></div>
         <div className="field-label">個人照片 <span>必填 · 1 張</span></div>
