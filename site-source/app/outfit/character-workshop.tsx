@@ -72,6 +72,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
         const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
         const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string; targets?: string[] };
         setMyName(p.name || ""); setTargets(p.targets || []);
+        if (p.job && (p.job as JobInfo).target) setTarget((p.job as JobInfo).target || "");   // 管理者代做的製作單：預先選好要發佈給誰
         if (p.error) throw new Error(p.error);
         if (!p.job) { setStage("upload"); return; }
         setJob(p.job);
