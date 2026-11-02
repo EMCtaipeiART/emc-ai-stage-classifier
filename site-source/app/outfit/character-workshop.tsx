@@ -1,0 +1,240 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, LoaderCircle, Upload, UserRound } from "lucide-react";
+import { normalizePhoto } from "@/lib/normalize-photo";
+import {
+  ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, toBlob,
+  type Adjust, type Canvas, type Measure,
+} from "@/lib/character-image";
+
+// 角色工坊（取代舊的「頭像＋身體拼接」精靈）：
+// 01 上傳照片＋提示詞 → AI 三視圖 → 02 自動對位、使用者確認 → AI 補其餘 8 個角度 → 03 轉盤檢查（壞的可單獨重算）→ 04 發佈給 3D 辦公室。
+const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
+const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
+type JobInfo = { id: string; status: string; startRuns: number; angles: Record<string, number> };
+type Props = { token: string; departmentLabel: string; onPublished?: () => void };
+
+async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
+  const response = await fetch(url, { method: "POST", headers: { "x-emc-editor-token": token, ...(json ? { "Content-Type": "application/json" } : {}) }, body });
+  const raw = (await response.text()).trim();
+  let payload: T & { error?: string };
+  try { payload = JSON.parse(raw); } catch { throw new Error(response.status === 413 ? "附件太大，請壓縮後再試。" : `伺服器回應異常（${response.status}）`); }
+  if (!response.ok || payload.error) throw new Error(payload.error || "操作失敗，請稍後再試。");
+  return payload;
+}
+
+export default function CharacterWorkshop({ token, departmentLabel, onPublished }: Props) {
+  const auth = useMemo(() => ({ "x-emc-editor-token": token }), [token]);
+  const [job, setJob] = useState<JobInfo | null>(null);
+  const [stage, setStage] = useState<"loading" | "upload" | "align" | "angles" | "review" | "done">("loading");
+  const [file, setFile] = useState<File | null>(null);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState("");
+  const [elapsed, setElapsed] = useState(0);
+  const [error, setError] = useState("");
+  const [views, setViews] = useState<Canvas[]>([]);                 // 去背後的三張原圖
+  const [adj, setAdj] = useState<Adjust[]>([noAdjust(), noAdjust(), noAdjust()]);
+  const [sheetCells, setSheetCells] = useState<Canvas[]>([]);       // 規格化後三格（640）
+  const [ai, setAi] = useState<Record<number, Canvas>>({});
+  const [failed, setFailed] = useState<number[]>([]);
+  const [turn, setTurn] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const preview = useMemo(() => file ? URL.createObjectURL(file) : "", [file]);
+  const stepIndex = stage === "upload" || stage === "loading" ? 0 : stage === "align" ? 1 : stage === "angles" ? 2 : 3;
+
+  useEffect(() => { if (!busy) return; setElapsed(0); const t = window.setInterval(() => setElapsed((n) => n + 1), 1000); return () => window.clearInterval(t); }, [busy]);
+
+  async function fetchCanvas(id: string, name: string, bust = false): Promise<Canvas | null> {
+    const response = await fetch(`/api/character/${id}/asset/${name}.png${bust ? `?t=${Date.now()}` : ""}`, { headers: auth, cache: "no-store" });
+    if (!response.ok) return null;
+    return cutout(await loadImg(await response.blob()));
+  }
+
+  // 進來時讀回自己的製作單，從上次停下的地方繼續
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/character", { headers: auth, cache: "no-store" });
+        const p = await r.json() as { job?: JobInfo | null; error?: string };
+        if (p.error) throw new Error(p.error);
+        if (!p.job) { setStage("upload"); return; }
+        setJob(p.job);
+        if (p.job.status === "views3") { const v = await fetchCanvas(p.job.id, "views3"); if (v) { setViews(splitViews(v).map((c) => clean(c))); setStage("align"); } else setStage("upload"); }
+        else if (p.job.status === "angles" || p.job.status === "published") {
+          const sheet = await fetchCanvas(p.job.id, "sheet");
+          if (!sheet) { setStage("upload"); return; }
+          setSheetCells([0, 1, 2].map((i) => { const c = mkCell(); c.getContext("2d")!.drawImage(sheet, i * SHEET_CELL, 0, SHEET_CELL, SHEET_CELL, 0, 0, SHEET_CELL, SHEET_CELL); return c; }));
+          const got: Record<number, Canvas> = {};
+          await Promise.all(AI_ANGLES.map(async (deg) => { if (p.job!.angles[deg]) { const c = await fetchCanvas(p.job!.id, `a${String(deg).padStart(3, "0")}`); if (c) got[deg] = clean(c); } }));
+          setAi(got);
+          setStage(p.job.status === "published" ? "done" : Object.keys(got).length === AI_ANGLES.length ? "review" : "angles");
+        } else setStage("upload");
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "讀取失敗"); setStage("upload"); }
+    })();
+  }, [token]);
+
+  const mkCell = () => { const c = document.createElement("canvas"); c.width = c.height = SHEET_CELL; return c; };
+  const measures: Array<Measure | null> = useMemo(() => views.map((v) => measure(v)), [views]);
+  const diagnosis = useMemo(() => views.length === 3 ? diagnose(measures) : null, [views, measures]);
+  const cells = useMemo(() => views.length === 3 ? views.map((v, i) => measures[i] ? placeCell(v, measures[i]!, SHEET_CELL, SHEET_HEIGHT, SHEET_FOOT, adj[i]) : mkCell()) : [], [views, measures, adj]);
+
+  async function generate() {
+    if (!file || busy) return;
+    setError(""); setBusy("三視圖生成中");
+    try {
+      const form = new FormData();
+      form.set("prompt", notes.trim()); form.append("image", await normalizePhoto(file));
+      if (job) form.set("jobId", job.id);
+      const res = await postJson<{ jobId: string; startRuns: number }>("/api/character/start", token, form);
+      const v = await fetchCanvas(res.jobId, "views3", true);
+      if (!v) throw new Error("讀不到生成的三視圖，請再試一次。");
+      setJob({ id: res.jobId, status: "views3", startRuns: res.startRuns, angles: {} });
+      setViews(splitViews(v).map((c) => clean(c))); setAdj([noAdjust(), noAdjust(), noAdjust()]); setAi({}); setStage("align");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); }
+    finally { setBusy(""); }
+  }
+
+  async function confirmAlign() {
+    if (!job || cells.length !== 3 || busy) return;
+    setError(""); setBusy("儲存對位");
+    try {
+      const sheet = mkCell(); sheet.width = SHEET_CELL * 3;
+      cells.forEach((c, i) => sheet.getContext("2d")!.drawImage(c, i * SHEET_CELL, 0));
+      const form = new FormData();
+      form.set("sheet", await toBlob(sheet), "sheet.png"); form.set("align", JSON.stringify({ adj, measures }));
+      await postJson("/api/character/" + job.id + "/confirm", token, form);
+      setSheetCells(cells); setJob({ ...job, status: "angles" }); setStage("angles");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
+    finally { setBusy(""); }
+  }
+
+  async function runAngle(deg: number) {
+    if (!job) return;
+    await postJson("/api/character/" + job.id + "/angle", token, JSON.stringify({ deg }), true);
+    const c = await fetchCanvas(job.id, `a${String(deg).padStart(3, "0")}`, true);
+    if (!c) throw new Error("讀不到生成的角度圖");
+    setAi((prev) => ({ ...prev, [deg]: clean(c) }));
+  }
+  /** 一次補齊還沒有的角度（同時最多 2 個，避免一次打爆額度）；失敗的記下來，可以單獨重算。 */
+  async function fillAngles(only?: number) {
+    if (!job || busy) return;
+    setError(""); setBusy("補角度中"); setFailed([]);
+    const todo = only ? [only] : AI_ANGLES.filter((deg) => !ai[deg]);
+    const bad: number[] = []; let firstError = "";
+    const queue = [...todo];
+    await Promise.all([0, 1].map(async () => {
+      while (queue.length) { const deg = queue.shift()!; try { await runAngle(deg); } catch (cause) { bad.push(deg); firstError ||= cause instanceof Error ? cause.message : "生成失敗"; } }
+    }));
+    setFailed(bad); if (firstError) setError(`有 ${bad.length} 個角度失敗：${firstError}`);
+    setBusy("");
+    if (!bad.length) setStage("review");
+  }
+
+  const frames = useMemo(() => sheetCells.length === 3 ? assembleFrames(sheetCells, ai) : [], [sheetCells, ai]);
+  const turnRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const target = turnRef.current, frame = frames[turn];
+    if (!target || !frame) return;
+    const m = measure(frame); if (!m) return;
+    const g = target.getContext("2d")!; g.clearRect(0, 0, target.width, target.height);
+    g.fillStyle = "#e4eaef"; g.fillRect(0, 0, target.width, target.height);
+    g.drawImage(placeCell(frame, m, 320, 290, 12), 0, 0);
+  }, [frames, turn, stage]);
+
+  async function publish() {
+    if (!job || busy || frames.some((f) => !f)) return;
+    setError(""); setBusy("烘焙並上線");
+    try {
+      const all = frames as Canvas[];
+      const small = bakeAtlas(all, 60), big = bakeAtlas(all, 240);
+      const front = measure(all[0]) ? placeCell(all[0], measure(all[0])!, 320, 290, 12) : all[0];
+      const form = new FormData();
+      form.set("atlas", await toBlob(small), "atlas.png"); form.set("atlasHd", await toBlob(big), "atlas-hd.png"); form.set("avatar", avatarOf(front));
+      await postJson("/api/character/" + job.id + "/publish", token, form);
+      setStage("done"); onPublished?.();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "發佈失敗"); }
+    finally { setBusy(""); }
+  }
+
+  const nudge = (i: number, patch: Partial<Adjust>) => setAdj((prev) => prev.map((a, k) => k === i ? { ...a, ...patch } : a));
+  const names = ["正面", "側面（朝右）", "背面"];
+
+  return <section className="persona">
+    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>角色工坊</h2><p>{departmentLabel}同仁：上傳一張個人照並寫下想要的樣子，AI 先畫三視圖讓你確認對位，確認後再補齊其他角度，沒問題就上線到 3D 辦公室。</p></div></div>
+    <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} className={index < stepIndex ? "done" : index === stepIndex ? "now" : stage === "done" ? "done" : ""}><span>{index < stepIndex || stage === "done" ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
+    {error && <div className="error" role="alert">{error}</div>}
+
+    {stage === "loading" && <div className="persona-card"><LoaderCircle className="spin" size={20} /> 讀取中…</div>}
+
+    {stage === "upload" && <div className="persona-card">
+      <button className="drop" onClick={() => input.current?.click()} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "選一張你的個人照"}</strong><small>清楚的正面或半身照最準，PNG／JPG／WebP，10MB 內</small></button>
+      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f && f.size <= 10 * 1024 * 1024) setFile(f); e.target.value = ""; }} />
+      {preview && <div className="thumbs"><div><img src={preview} alt="個人照" /></div></div>}
+      <label className="field-label" htmlFor="char-notes">提示詞 <span>選填：想要的髮型、穿著、配件（帽子、眼鏡也寫在這裡，會直接畫在角色身上）</span></label>
+      <textarea id="char-notes" value={notes} maxLength={300} disabled={Boolean(busy)} placeholder="例如：短髮、戴黑框眼鏡、穿深藍襯衫" onChange={(e) => setNotes(e.target.value)} />
+      <button className="generate" onClick={() => void generate()} disabled={Boolean(busy) || !file}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…{elapsed} 秒（約 1～3 分鐘）</> : job ? "重新生成三視圖" : "生成三視圖"}</button>
+    </div>}
+
+    {stage === "align" && views.length === 3 && <div className="persona-card">
+      <p className="persona-hint">已自動把三張圖縮成同高、腳底對齊、置中。紅線＝頭頂，綠線＝腳底，藍線＝中線。{diagnosis?.ok ? "檢查全部通過。" : ""}若頭和身體歪了，用下方滑桿微調；整體不對就回上一步重新生成。</p>
+      {diagnosis && !diagnosis.ok && <ul className="persona-warn">{diagnosis.warnings.map((w) => <li key={w}>⚠ {w}</li>)}</ul>}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+        {cells.map((cell, i) => <div key={i} style={{ background: "#e4eaef", borderRadius: 12, padding: 6 }}>
+          <GuideCanvas cell={cell} />
+          <b style={{ display: "block", textAlign: "center", margin: "4px 0" }}>{names[i]}</b>
+          <label className="cp-f" style={{ display: "block", fontSize: 12 }}>大小<input type="range" min={0.85} max={1.15} step={0.005} value={adj[i].scale} onChange={(e) => nudge(i, { scale: Number(e.target.value) })} style={{ width: "100%" }} /></label>
+          <label className="cp-f" style={{ display: "block", fontSize: 12 }}>左右<input type="range" min={-0.08} max={0.08} step={0.002} value={adj[i].dx} onChange={(e) => nudge(i, { dx: Number(e.target.value) })} style={{ width: "100%" }} /></label>
+          <label className="cp-f" style={{ display: "block", fontSize: 12 }}>上下<input type="range" min={-0.06} max={0.06} step={0.002} value={adj[i].dy} onChange={(e) => nudge(i, { dy: Number(e.target.value) })} style={{ width: "100%" }} /></label>
+        </div>)}
+      </div>
+      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+        <button className="generate" onClick={() => void confirmAlign()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : "對位正確，開始補其他角度"}</button>
+        <button onClick={() => setStage("upload")} disabled={Boolean(busy)}>不滿意，重新生成三視圖{job ? `（已用 ${job.startRuns} 次）` : ""}</button>
+      </div>
+    </div>}
+
+    {stage === "angles" && <div className="persona-card">
+      <p className="persona-hint">接下來 AI 會依你確認的三視圖，補上其餘 8 個角度（30°、60°、120°、150°、210°、240°、300°、330°），約 3～8 分鐘，請不要關閉這個頁面。</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ textAlign: "center", fontSize: 12 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ height: 96, background: "#e4eaef", borderRadius: 10, display: "grid", placeItems: "center" }}>{busy ? <LoaderCircle size={16} className="spin" /> : failed.includes(deg) ? "失敗" : "待生成"}</div>}{deg}°</div>)}</div>
+      <button className="generate" onClick={() => void fillAngles()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…{elapsed} 秒（已完成 {Object.keys(ai).length}/8）</> : failed.length || Object.keys(ai).length ? "繼續補齊" : "開始補角度"}</button>
+    </div>}
+
+    {stage === "review" && <div className="persona-card">
+      <p className="persona-hint">拖動滑桿轉一圈檢查每個角度：頭、帽子、眼鏡、衣服是不是和三視圖一致，高度與腳底有沒有跳動。哪個角度壞了就單獨重算；都沒問題按「確認上線」。</p>
+      <canvas ref={turnRef} width={320} height={320} style={{ width: 320, maxWidth: "100%", borderRadius: 14, display: "block", margin: "0 auto" }} />
+      <input type="range" min={0} max={ANGLES - 1} step={1} value={turn} onChange={(e) => setTurn(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }} />
+      <p style={{ textAlign: "center", fontWeight: 700 }}>{turn * 30}°</p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6 }}>{frames.map((f, k) => f ? <button key={k} onClick={() => setTurn(k)} style={{ border: k === turn ? "2px solid #2fbf57" : "2px solid transparent", borderRadius: 8, padding: 2, background: "#fff" }}><Thumb canvas={f} /><small>{k * 30}°</small></button> : null)}</div>
+      {AI_ANGLES.includes(turn * 30) && <button onClick={() => void fillAngles(turn * 30)} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={16} className="spin" /> : `重算 ${turn * 30}° 這個角度（已用 ${job?.angles[turn * 30] ?? 1} 次）`}</button>}
+      <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
+    </div>}
+
+    {stage === "done" && <div className="persona-card"><p className="persona-hint"><b>已上線！</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。</p></div>}
+  </section>;
+}
+
+function GuideCanvas({ cell }: { cell: Canvas }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const t = ref.current; if (!t) return;
+    const g = t.getContext("2d")!, k = t.width / SHEET_CELL;
+    g.clearRect(0, 0, t.width, t.height); g.drawImage(cell, 0, 0, t.width, t.height);
+    const line = (x0: number, y0: number, x1: number, y1: number, color: string) => { g.strokeStyle = color; g.lineWidth = 1.5; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+    line(0, (SHEET_CELL - SHEET_FOOT - SHEET_HEIGHT) * k, t.width, (SHEET_CELL - SHEET_FOOT - SHEET_HEIGHT) * k, "#e64a5e");
+    line(0, (SHEET_CELL - SHEET_FOOT) * k, t.width, (SHEET_CELL - SHEET_FOOT) * k, "#2bb468");
+    line(t.width / 2, 0, t.width / 2, t.height, "#2f9dbf");
+  }, [cell]);
+  return <canvas ref={ref} width={200} height={200} style={{ width: "100%", display: "block" }} />;
+}
+
+function Thumb({ canvas }: { canvas: Canvas }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const t = ref.current; if (!t) return;
+    const g = t.getContext("2d")!, m = measure(canvas); g.clearRect(0, 0, t.width, t.height);
+    g.fillStyle = "#e4eaef"; g.fillRect(0, 0, t.width, t.height);
+    if (m) g.drawImage(placeCell(canvas, m, 96, 88, 4), 0, 0);
+  }, [canvas]);
+  return <canvas ref={ref} width={96} height={96} style={{ width: "100%", display: "block", borderRadius: 8 }} />;
+}
