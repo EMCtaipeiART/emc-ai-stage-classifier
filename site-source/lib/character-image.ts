@@ -140,7 +140,7 @@ export const toBlob = (c: Canvas) => new Promise<Blob>((resolve, reject) => c.to
 
 /** 頭像快照：正面格上方的頭與肩膀，裁成正方形。 */
 export function avatarOf(frontCell: Canvas, size = 160): string {
-  const m = measure(frontCell)!, side = Math.round(m.h * 0.7), out = mk(size, size), g = out.getContext("2d")!;
+  const m = measure(frontCell)!, side = Math.round(m.h * 0.9), out = mk(size, size), g = out.getContext("2d")!;
   g.imageSmoothingQuality = "high";
   g.drawImage(frontCell, Math.round(m.cx - side / 2), m.y0 - Math.round(side * 0.08), side, side, 0, 0, size, size);
   return out.toDataURL("image/png");
