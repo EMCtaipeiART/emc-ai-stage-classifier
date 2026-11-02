@@ -3,7 +3,7 @@
 import { ChangeEvent, DragEvent, ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { normalizePhoto } from "@/lib/normalize-photo";
 import "./studio.css";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Crown, Glasses, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpRight, Check, Coins, Download, LoaderCircle, LogOut, Pencil, Shirt, SlidersHorizontal, Sparkles, Star, Crown, Glasses, Trash2, TriangleAlert, Upload, UserRound, X } from "lucide-react";
 import HeadStudio from "./head-studio";
 import { type PersonaState } from "./persona-wizard";
 import CharacterWorkshop from "./character-workshop";
@@ -160,7 +160,7 @@ function normalizedSheet(source: HTMLImageElement, views: ViewBox[]) {
 export default function OutfitPage() {
   const [workshopOpen, setWorkshopOpen] = useState("");
   const [workshopTick, setWorkshopTick] = useState(0);
-  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop" | "seat">("workshop");
+  const [mode, setMode] = useState<"outfit" | "head" | "cap" | "glasses" | "workshop" | "seat" | "records" | "wallet">("workshop");
   // 管理者與 Machi：可以看、編輯全部人員的「我的服裝」
   const [libScope, setLibScope] = useState<"mine" | "all">("mine");
   const [libOwner, setLibOwner] = useState("");
@@ -572,8 +572,8 @@ export default function OutfitPage() {
       <div className="intro"><div><span className="eyebrow">YOUR NEXT LOOK, THREE WAYS.</span><h1>把穿搭靈感，變成遊戲服裝<span>。</span></h1><p>一張參考照，或一段描述。延續同一套畫風，生成完整服裝三視圖。</p></div><div className="intro-number"><b>03</b><span>FRONT · SIDE · BACK</span></div></div>
       {showWizard && wizardView && persona ? <CharacterWorkshop token={token} departmentLabel={personaDept || "你的部門"} canAll={canAll} onPublished={() => { setPersona({ ...persona, completed: true, step: "done" }); }}/> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
-      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["workshop", "角色工坊", <UserRound key="w" size={15} />], ["seat", "座位", <Crown key="s" size={15} />], ...(canAll ? [["outfit", "生成紀錄", <Shirt key="o" size={15} />]] : [])] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop" | "seat", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
-      {mode === "seat" ? <SeatPicker token={token} canAll={canAll} /> : mode === "workshop" ? <><CharacterAdmin canAll={canAll} token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} /><CharacterWorkshop key={workshopOpen || "mine"} token={token} departmentLabel="設計部、企劃部、專案部" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
+      <div className="mode-tabs" role="tablist" aria-label="製作類型">{([["workshop", "角色工坊", <UserRound key="w" size={15} />], ["seat", "座位", <Crown key="s" size={15} />], ...(canAll ? [["records", "生成紀錄", <Shirt key="o" size={15} />]] : []), ["wallet", "平台幣明細", <Coins key="c" size={15} />]] as Array<["outfit" | "head" | "cap" | "glasses" | "workshop" | "seat" | "records" | "wallet", string, ReactElement]>).map(([value, label, icon]) => <button key={value} role="tab" aria-selected={mode === value} className={mode === value ? "on" : ""} onClick={() => setMode(value)}>{icon}{label}</button>)}</div>
+      {mode === "seat" ? <SeatPicker token={token} canAll={canAll} /> : mode === "workshop" ? <><CharacterAdmin canAll={canAll} token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} /><CharacterWorkshop onNew={() => { setWorkshopOpen("new"); scrollStudioTop(); }} key={workshopOpen || "mine"} token={token} departmentLabel="設計部、企劃部、專案部" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} /></> : mode === "records" || mode === "wallet" ? null : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
       <div className="workspace">
         <section className="control">
           <div className="section-head"><span className="step">01</span><h2>設計你的下一套服裝</h2></div>
@@ -666,7 +666,7 @@ export default function OutfitPage() {
         </article>)}</div>}
       </section>
       </>}
-      <section className="history">
+      {mode === "records" && canAll && <section className="history">
         <div className="section-head"><div className="preview-title"><span className="step">04</span><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
         {historyError && <div className="error">{historyError}</div>}
@@ -679,12 +679,13 @@ export default function OutfitPage() {
           {record.imageUrl && <button className="open-btn" onClick={() => openRecord(record)}>重新打開</button>}
           {canAll && <span style={{ display: "flex", gap: 6 }}><button className="open-btn" onClick={() => void editRecord(record)}>編輯</button><button className="open-btn" style={{ color: "#c0392b" }} onClick={() => void removeRecord(record)}>刪除</button></span>}
         </article>)}</div>}
-      </section>
-      {wallet?.designer && <section className="history">
+      </section>}
+      {mode === "wallet" && (wallet?.designer ? <section className="history">
         <div className="section-head"><div className="preview-title"><span className="step">05</span><h2>平台幣明細</h2></div><button className="refresh" onClick={() => void loadWallet()}>重新整理</button></div>
+        <div className="wallet" style={{ marginBottom: 14 }}><div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div></div>
         <p className="history-total">你的最近 {wallet.recent.length} 筆紀錄（完整帳本由管理員保存，每筆都有簽章，無法事後修改）</p>
         {!wallet.recent.length ? <p className="empty-note">還沒有紀錄。完成案件後，積分會自動記入。</p> : <div className="records">{wallet.recent.map((entry) => <article key={entry.seq} className="coin-entry"><time>{formatTime(entry.at)}</time><strong>{entry.label}{entry.counterparty ? `（${entry.kind === "transfer_in" ? "來自" : "給"} ${entry.counterparty}）` : ""}</strong><span className="coin-memo">{entry.memo}</span><b className={entry.amount >= 0 ? "plus" : "minus"}>{entry.amount >= 0 ? "+" : ""}{fmtCoin(entry.amount)}</b></article>)}</div>}
-      </section>}
+      </section> : <section className="history"><div className="section-head"><div className="preview-title"><span className="step">05</span><h2>平台幣明細</h2></div></div><p className="empty-note">{!token ? "請從設計需求系統進入。" : walletError ? walletError : !wallet ? "讀取中…" : "只有設計師、企劃部、專案部帳號有平台幣。"}</p></section>)}
       </>}
       <footer><span>PIXEL OFFICE / CREATIVE TOOLS</span><span>每一套，都有你的風格。</span></footer>
     </main>

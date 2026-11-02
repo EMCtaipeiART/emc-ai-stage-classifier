@@ -181,3 +181,13 @@ html:has(.studio.embed){overflow:hidden}
 .persona-banner button{padding:6px 12px;border-radius:99px;border:1px solid #159e31;background:transparent;color:inherit;cursor:pointer}
 .persona-banner-actions{display:flex;gap:8px;flex-wrap:wrap}
 .lib-scope{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 10px}.lib-scope button{padding:6px 14px;border-radius:99px;border:1px solid rgba(120,130,150,.4);background:transparent;color:inherit;cursor:pointer}.lib-scope button.on{background:#159e31;border-color:#159e31;color:#fff}.lib-scope select{padding:6px 10px;border-radius:10px;border:1px solid rgba(120,130,150,.4);background:transparent;color:inherit}
+/* 角色工坊（2026-11-02）：沿用服裝頁的按鈕／下拉樣式 */
+.studio .wk button:not(.generate):not(.drop):not(.open-btn):not([role="tab"]),.studio .lib-actions select,.studio .wk select{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:9px 12px;font-size:11px}
+.studio .wk button:not(.generate):not(.drop):hover,.studio .lib-actions button:hover,.studio .open-btn:hover{border-color:var(--green)}
+.studio .wk button:disabled{opacity:.55;cursor:wait}
+.studio .wk .preview{margin-top:14px}
+.studio .lib-actions .primary{background:var(--green);border-color:var(--green);color:#fff;font-weight:700}
+.studio .wk .persona-steps{margin:0 0 4px}
+.studio .lib-thumb{width:200px}
+.studio .rules{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--green-ink);background:var(--tint);border:1px solid var(--tint-line);border-radius:8px;padding:8px 10px}
+.studio small.cost{display:block;font-size:10px;color:var(--faint);margin-top:9px;text-align:center}

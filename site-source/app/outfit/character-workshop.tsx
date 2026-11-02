@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, LoaderCircle, Upload, UserRound } from "lucide-react";
+import { Check, LoaderCircle, Sparkles, Upload, UserRound, X } from "lucide-react";
 import { normalizePhoto } from "@/lib/normalize-photo";
-import SeatPicker from "./seat-picker";
 import {
   ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, splitGrid, toBlob,
   type Adjust, type Canvas, type Measure,
@@ -14,7 +13,7 @@ import {
 const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330];
 const STEPS = ["上傳照片", "三視圖對位", "補其餘角度", "檢查並上線"];
 type JobInfo = { id: string; publishedAs?: string; target?: string; status: string; startRuns: number; angles: Record<string, number> };
-type Props = { token: string; departmentLabel: string; canAll?: boolean; openId?: string; onPublished?: () => void };
+type Props = { token: string; departmentLabel: string; canAll?: boolean; openId?: string; onPublished?: () => void; onNew?: () => void };
 // 管理者發佈時要指定「這套是給誰的」：名單由後端（後台資料庫「帳號設定」）提供
 
 async function postJson<T>(url: string, token: string, body: BodyInit, json = false): Promise<T> {
@@ -28,7 +27,7 @@ async function postJson<T>(url: string, token: string, body: BodyInit, json = fa
   return payload;
 }
 
-export default function CharacterWorkshop({ token, departmentLabel, canAll = false, openId = "", onPublished }: Props) {
+export default function CharacterWorkshop({ token, departmentLabel, canAll = false, openId = "", onPublished, onNew }: Props) {
   const auth = useMemo(() => ({ "x-emc-editor-token": token }), [token]);
   const [job, setJob] = useState<JobInfo | null>(null);
   const [stage, setStage] = useState<"loading" | "upload" | "align" | "angles" | "review" | "done">("loading");
@@ -213,23 +212,35 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   const nudge = (i: number, patch: Partial<Adjust>) => setAdj((prev) => prev.map((a, k) => k === i ? { ...a, ...patch } : a));
   const names = ["正面", "側面（朝右）", "背面"];
 
-  return <section className="persona">
-    <div className="persona-head"><span className="step"><UserRound size={16} /></span><div><h2>角色工坊</h2><p>{departmentLabel}同仁：上傳一張個人照並寫下想要的樣子，AI 先畫三視圖讓你確認對位，確認後再補齊其他角度，沒問題就上線到 3D 辦公室。</p></div></div>
+  return <section className="wk">
+    <div className="section-head" style={{ marginTop: 26 }}><span className="step"><UserRound size={15} /></span><div><h2>生成角色</h2><p className="prompt-foot" style={{ margin: 0, fontSize: 11 }}>{departmentLabel}同仁：上傳個人照 → 三視圖對位 → 補其餘角度 → 上線到 3D 辦公室。</p></div></div>
     <ol className="persona-steps">{STEPS.map((label, index) => <li key={label} onClick={canAll && job && !busy && stage !== "loading" ? () => void goStage(index) : undefined} style={canAll && job ? { cursor: "pointer" } : undefined} title={canAll && job ? "管理者：回到這一步編輯" : undefined} className={index < stepIndex ? "done" : index === stepIndex ? "now" : stage === "done" ? "done" : ""}><span>{index < stepIndex || stage === "done" ? <Check size={13} /> : index + 1}</span>{label}</li>)}</ol>
     {error && <div className="error" role="alert">{error}</div>}
 
-    {stage === "loading" && <div className="persona-card"><LoaderCircle className="spin" size={20} /> 讀取中…</div>}
+    {stage === "loading" && <div className="preview" style={{ marginTop: 14 }}><LoaderCircle className="spin" size={20} /> 讀取中…</div>}
 
-    {stage === "upload" && <div className="persona-card">
-      <button className="drop" onClick={() => input.current?.click()} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "選一張你的個人照"}</strong><small>清楚的正面或半身照最準，PNG／JPG／WebP，10MB 內</small></button>
-      <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f && f.size <= 10 * 1024 * 1024) setFile(f); e.target.value = ""; }} />
-      {preview && <div className="thumbs"><div><img src={preview} alt="個人照" /></div></div>}
-      <label className="field-label" htmlFor="char-notes">提示詞 <span>選填：想要的髮型、穿著、配件（帽子、眼鏡也寫在這裡，會直接畫在角色身上）</span></label>
-      <textarea id="char-notes" value={notes} maxLength={300} disabled={Boolean(busy)} placeholder="例如：短髮、戴黑框眼鏡、穿深藍襯衫" onChange={(e) => setNotes(e.target.value)} />
-      <button className="generate" onClick={() => void generate()} disabled={Boolean(busy) || !file}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…{elapsed} 秒（約 1～3 分鐘）</> : job ? "重新生成三視圖" : "生成三視圖"}</button>
+    {stage === "upload" && <div className="workspace">
+      <section className="control">
+        <div className="section-head"><span className="step">01</span><h2>{job ? "重新生成三視圖" : "上傳照片，生成角色"}</h2></div>
+        <div className="field-label">個人照片 <span>必填 · 1 張</span></div>
+        <button className="drop" onClick={() => input.current?.click()} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "拖曳或點擊上傳個人照"}</strong><span>清楚的正面或半身照最準</span><small>PNG / JPG / WebP · 10 MB 以內</small></button>
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f && f.size <= 10 * 1024 * 1024) setFile(f); e.target.value = ""; }} />
+        {preview && <div className="thumbs"><div><img src={preview} alt="個人照" /><button onClick={() => setFile(null)} aria-label="移除照片" disabled={Boolean(busy)}><X size={13} /></button></div></div>}
+        <label className="field-label" htmlFor="char-notes">提示詞 <span>選填 · 髮型、穿著、帽子、眼鏡都寫在這裡</span></label>
+        <textarea id="char-notes" value={notes} maxLength={300} disabled={Boolean(busy)} placeholder="例如：短髮、戴黑框眼鏡、穿深藍襯衫" onChange={(e) => setNotes(e.target.value)} />
+        <div className="prompt-foot"><span>帽子與眼鏡會直接畫在角色身上，不另外做配件。</span><span>{notes.length}/300</span></div>
+        <div className="rules" style={{ marginTop: 18 }}><Check size={15} /><span>已套用固定規範：三視圖（正面、右側、背面）、透明背景</span></div>
+        <button className="generate" onClick={() => void generate()} disabled={Boolean(busy) || !file} style={{ marginTop: 18 }}>{busy ? <><LoaderCircle size={19} className="spin" /><span>{busy}…{elapsed} 秒（約 1～3 分鐘）</span></> : <><Sparkles size={19} /><span>{job ? "重新生成三視圖" : "生成三視圖"}</span></>}</button>
+        <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在「生成紀錄」。</small>
+      </section>
+      <section className="preview">
+        <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>製作流程</h2></div></div>
+        <div className="guidance"><div><span>01 / VIEWS</span><b>三視圖＋自動對位</b><p>AI 先畫正面、側面、背面，系統自動量頭頂與腳底並對齊，你只要確認。</p></div><div><span>02 / ANGLES</span><b>一次補齊其餘角度</b><p>確認後用一張圖補齊其他 8 個角度，不滿意的角度可以單獨重算。</p></div></div>
+        <div className="guidance"><div><span>03 / PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>04 / SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到「座位」分頁設定。</p></div></div>
+      </section>
     </div>}
 
-    {stage === "align" && views.length === 3 && <div className="persona-card">
+    {stage === "align" && views.length === 3 && <div className="preview" style={{ marginTop: 14 }}>
       <p className="persona-hint">已自動把三張圖縮成同高、腳底對齊、置中。紅線＝頭頂，綠線＝腳底，藍線＝中線。{diagnosis?.ok ? "檢查全部通過。" : ""}若頭和身體歪了，用下方滑桿微調；整體不對就回上一步重新生成。</p>
       {diagnosis && !diagnosis.ok && <ul className="persona-warn">{diagnosis.warnings.map((w) => <li key={w}>⚠ {w}</li>)}</ul>}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
@@ -247,7 +258,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       </div>
     </div>}
 
-    {stage === "angles" && <div className="persona-card" style={{ textAlign: "center", padding: "36px 20px" }}>
+    {stage === "angles" && <div className="preview" style={{ marginTop: 14, textAlign: "center", padding: "36px 20px" }}>
       <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
       <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
       <p className="persona-hint">AI 正依你確認的三視圖，一次畫出其餘 8 個角度，約 1～3 分鐘，完成會自動進入檢查畫面；不滿意的角度之後可以單獨補算。{!busy && Object.keys(ai).length ? `已完成的 ${Object.keys(ai).length} 個角度都已存起來，只會補算缺的，不會重複計費。` : "做好的角度會即時存起來；中途離開，下次回來只補缺的。"}</p>
@@ -257,7 +268,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid())}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
     </div>}
 
-    {stage === "review" && <div className="persona-card">
+    {stage === "review" && <div className="preview" style={{ marginTop: 14 }}>
       <p className="persona-hint">拖動滑桿轉一圈檢查每個角度：頭、帽子、眼鏡、衣服是不是和三視圖一致，高度與腳底有沒有跳動。哪個角度壞了就單獨重算；都沒問題按「確認上線」。</p>
       {canAll && <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>角度品質（管理者測試）：<select value={quality} onChange={(e) => setQuality(e.target.value as "medium" | "high")}><option value="medium">medium（省錢）</option><option value="high">high（較細緻）</option></select>　<button onClick={() => void fillGrid()} disabled={Boolean(busy)}>用此品質整組重算 8 個角度</button></label>}
       <canvas ref={turnRef} width={320} height={320} style={{ width: 320, maxWidth: "100%", borderRadius: 14, display: "block", margin: "0 auto" }} />
@@ -269,7 +280,14 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <button className="generate" onClick={() => void publish()} disabled={Boolean(busy)}>{busy ? <><LoaderCircle size={19} className="spin" />{busy}…</> : "確認無誤，上線到 3D 辦公室"}</button>
     </div>}
 
-    {stage === "done" && <><div className="persona-card">{job && !job.publishedAs && <p className="persona-hint"><button className="generate" onClick={() => void makeMyDefault()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : "把這套設為預設角色"}</button> 這套目前不是預設，設定後 3D 辦公室與首頁頭像會換成這套。</p>}<p className="persona-hint"><b>{job?.publishedAs ? "已上線（預設中）！" : "這套已完成。"}</b>重新整理 3D 辦公室（約 1 分鐘內）就會看到你的新角色，首頁頭像框也會更新。下面可以選一個座位；不選就在辦公室自由走動，之後隨時可以回來改。</p></div><SeatPicker token={token} canAll={canAll} defaultName={target || myName} /></>}
+    {stage === "done" && <div className="preview" style={{ marginTop: 14 }}>
+      <div className="section-head"><div className="preview-title"><span className="step"><Check size={14} /></span><h2>{job?.publishedAs ? `已上線 · 預設中（${job.publishedAs}）` : "這套已完成"}</h2></div></div>
+      <p className="preview-bottom"><span>重新整理 3D 辦公室（約 1 分鐘內）就會看到新角色，首頁頭像框也會更新。要固定坐在某個位置，請到「座位」分頁；不選就在辦公室自由走動。</span></p>
+      <div className="job-actions">
+        {job && !job.publishedAs && <button className="generate" style={{ width: "auto", padding: "12px 20px" }} onClick={() => void makeMyDefault()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : <Check size={17} />}<span>把這套設為預設角色</span></button>}
+        <button className="open-btn" onClick={() => onNew?.()}>＋ 再新增一套角色</button>
+      </div>
+    </div>}
   </section>;
 }
 
