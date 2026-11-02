@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import { deleteAsset, getAsset, putAsset } from "@/lib/storage";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { IMAGE_MODEL_DEFAULT } from "@/lib/outfit-spec";
@@ -70,6 +70,11 @@ export async function updateJob(id: string, patch: { status?: string; anglesJson
     .bind(patch.status ?? null, patch.anglesJson ?? null, patch.alignJson ?? null, patch.addCost ?? 0, patch.startRuns ?? null, patch.described ?? null, id).run();
 }
 
+/** 原子地把某個角度的次數加一（兩個角度同時完成時，不能互相蓋掉對方的紀錄）。 */
+export async function bumpAngle(id: string, deg: number, cost: number) {
+  await env.DB!.prepare(`UPDATE character_jobs SET angles_json = json_set(COALESCE(NULLIF(angles_json, ''), '{}'), '$."${Math.trunc(deg)}"', COALESCE(json_extract(COALESCE(NULLIF(angles_json, ''), '{}'), '$."${Math.trunc(deg)}"'), 0) + 1), cost_usd = cost_usd + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).bind(cost, id).run();
+}
+
 export async function readAsset(key: string): Promise<Uint8Array | null> {
   const stream = await getAsset(key);
   return stream ? new Uint8Array(await new Response(stream).arrayBuffer()) : null;
@@ -93,7 +98,10 @@ export function heartbeatJson(work: () => Promise<unknown>): Response {
   const stream = new ReadableStream({
     async start(controller) {
       const beat = setInterval(() => { try { controller.enqueue(encoder.encode(" ")); } catch { /* 已關閉 */ } }, 8000);
-      try { controller.enqueue(encoder.encode(JSON.stringify(await work()))); }
+      // 生成會花錢：就算使用者中途關掉頁面，也要讓伺服器把這一張做完並存起來（waitUntil），下次回來直接讀取，不用重算
+      const job = work();
+      try { waitUntil(job.catch(() => undefined)); } catch { /* 沒有 waitUntil（本機）就照常 */ }
+      try { controller.enqueue(encoder.encode(JSON.stringify(await job))); }
       catch (cause) { controller.enqueue(encoder.encode(JSON.stringify({ error: cause instanceof Error ? cause.message : "生成失敗，請稍後再試。" }))); }
       finally { clearInterval(beat); controller.close(); }
     },

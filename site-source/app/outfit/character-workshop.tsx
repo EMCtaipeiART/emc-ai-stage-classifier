@@ -47,6 +47,10 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   const preview = useMemo(() => file ? URL.createObjectURL(file) : "", [file]);
   const stepIndex = stage === "upload" || stage === "loading" ? 0 : stage === "align" ? 1 : stage === "angles" ? 2 : 3;
 
+  useEffect(() => {   // 製作中離開頁面會中斷這一輪，先提醒
+    if (!busy) return; const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
+  }, [busy]);
   useEffect(() => { if (!busy) return; setElapsed(0); const t = window.setInterval(() => setElapsed((n) => n + 1), 1000); return () => window.clearInterval(t); }, [busy]);
 
   async function fetchCanvas(id: string, name: string, bust = false): Promise<Canvas | null> {
@@ -71,7 +75,8 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
           if (!sheet) { setStage("upload"); return; }
           setSheetCells([0, 1, 2].map((i) => { const c = mkCell(); c.getContext("2d")!.drawImage(sheet, i * SHEET_CELL, 0, SHEET_CELL, SHEET_CELL, 0, 0, SHEET_CELL, SHEET_CELL); return c; }));
           const got: Record<number, Canvas> = {};
-          await Promise.all(AI_ANGLES.map(async (deg) => { if (p.job!.angles[deg]) { const c = await fetchCanvas(p.job!.id, `a${String(deg).padStart(3, "0")}`); if (c) got[deg] = clean(c); } }));
+          // 不看次數紀錄，直接逐一讀圖：圖在伺服器上就算數（避免紀錄漏掉而重複計費）
+          await Promise.all(AI_ANGLES.map(async (deg) => { const c = await fetchCanvas(p.job!.id, `a${String(deg).padStart(3, "0")}`); if (c) got[deg] = clean(c); }));
           setAi(got);
           setStage(p.job.status === "published" ? "done" : Object.keys(got).length === AI_ANGLES.length ? "review" : "angles");
         } else setStage("upload");
@@ -206,7 +211,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     {stage === "angles" && <div className="persona-card" style={{ textAlign: "center", padding: "36px 20px" }}>
       <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
       <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
-      <p className="persona-hint">AI 正依你確認的三視圖補上其餘 8 個角度，約 3～8 分鐘，完成會自動進入檢查畫面。請不要關閉或離開這個頁面。</p>
+      <p className="persona-hint">AI 正依你確認的三視圖補上其餘 8 個角度，約 3～8 分鐘，完成會自動進入檢查畫面。{!busy && Object.keys(ai).length ? `已完成的 ${Object.keys(ai).length} 個角度都已存起來，只會補算缺的，不會重複計費。` : "做好的角度會即時存起來；中途離開，下次回來只補缺的。"}</p>
       <div style={{ height: 10, borderRadius: 99, background: "#e4eaef", overflow: "hidden", margin: "14px auto", maxWidth: 420 }}><div style={{ height: "100%", width: `${Object.keys(ai).length / 8 * 100}%`, background: "linear-gradient(90deg,#43d86c,#1aa844)", transition: "width .4s" }} /></div>
       <p style={{ fontWeight: 700 }}>已完成 {Object.keys(ai).length} / 8　{busy ? `（${elapsed} 秒）` : ""}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, maxWidth: 560, margin: "10px auto" }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ fontSize: 11 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ aspectRatio: "1", background: "#e4eaef", borderRadius: 8, display: "grid", placeItems: "center" }}>{failed.includes(deg) ? "✕" : busy ? <LoaderCircle size={12} className="spin" /> : ""}</div>}{deg}°</div>)}</div>

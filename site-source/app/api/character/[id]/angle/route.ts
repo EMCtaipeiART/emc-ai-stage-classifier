@@ -1,5 +1,5 @@
 import { buildAnglePrompt, editImage, turntableReference } from "@/lib/character-ai";
-import { AI_ANGLES, angleName, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, readAsset, requireWho, updateJob } from "@/lib/character";
+import { AI_ANGLES, angleName, bumpAngle, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, readAsset, requireWho, updateJob } from "@/lib/character";
 import { canManageAll } from "@/lib/coins-client";
 
 export const runtime = "edge";
@@ -35,8 +35,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { png, costUsd } = result;
     await logGeneration({ userId, label: `${deg}°`, description: job.prompt, seconds: secs(), jobId: id, png, costUsd, usage: result.usage, model: result.model, transparent: result.transparent });
     await putAsset(jobKey(id, angleName(deg)), png, "image/png");
-    counts[deg] = (counts[deg] || 0) + 1;
-    await updateJob(id, { anglesJson: JSON.stringify(counts), addCost: costUsd });
-    return { ok: true, deg, tries: counts[deg], limit: canManageAll(auth.who) ? 0 : MAX_TRIES };
+    await bumpAngle(id, deg, costUsd);
+    return { ok: true, deg, tries: (counts[deg] || 0) + 1, limit: canManageAll(auth.who) ? 0 : MAX_TRIES };
   });
 }
