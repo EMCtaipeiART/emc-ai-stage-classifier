@@ -115,6 +115,7 @@ export async function POST(request: Request) {
   const kindField = String(form.get("kind"));
   const isHead = kindField === "head";   // 頭像、帽子、眼鏡生成：同一套流程與扣點，換各自的提示詞與參考圖
   const accessory: AccessoryKind | null = kindField === "cap" || kindField === "glasses" ? kindField : null;
+  if (accessory) return Response.json({ error: "帽子與眼鏡已暫時下架（3D 版需要 12 個角度，改版中）。" }, { status: 410 });   // 2026-11-02
   const itemKind: "outfit" | "head" | "cap" | "glasses" = accessory || (isHead ? "head" : "outfit");
   const refit = itemKind === "outfit" && String(form.get("mode")) === "refit";
   // 預設用「六套現有服裝的參考圖」當風格與比例參考（細節與線條最精緻、人物最大）；只有修正比例時才用無頭身體底圖。
