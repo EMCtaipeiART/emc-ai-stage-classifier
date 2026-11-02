@@ -2,6 +2,7 @@ import { env, waitUntil } from "cloudflare:workers";
 import { deleteAsset, getAsset, putAsset } from "@/lib/storage";
 import { saveOutfitRecord } from "@/lib/outfit-history";
 import { IMAGE_MODEL_DEFAULT } from "@/lib/outfit-spec";
+import { FIXED_SEATS, SEAT_KEYS } from "@/lib/seat-layout";
 import { canManageAll, designApi, editorTokenOf, whoami, type Who } from "@/lib/coins-client";
 
 // 角色工坊（2026-11-02）：上傳照片 → AI 三視圖 → 對位確認 → AI 補其餘 8 個角度 → 烘焙 12 視角圖集 → 發佈給 3D 辦公室。
@@ -169,19 +170,9 @@ export async function deleteJob(jobId: string) {
 }
 
 // ---- 座位（3D 辦公室）：每個發佈角色可以指定一個座位，沒指定就在辦公室自由走動；隨時可以改。 ----
-// 座位編號：五樓 "5:桌子群(0|1):排(0-2):欄(0-2):top|bottom"；四樓 "4:桌子群(0-4):座位(1-8)"。會議室、茶水間不算座位。
-// 固定座位的人（3D 辦公室寫死的 12 位設計部人物）不能被別人佔走。座位資料要和 pixel-plaza/index.html 的 SEATS／SEATS4 一致。
-export const FIXED_SEATS: Record<string, string> = {
-  Leona: "5:0:2:0:top", Amber: "5:0:2:1:top", Noise: "5:0:2:2:top", Anna: "5:0:2:1:bottom", Machi: "5:0:2:2:bottom",
-  吳冠賢: "5:1:2:0:bottom", 廖秦葦: "5:1:2:0:top", 李明庭: "5:1:2:1:top",
-  黎子瑄: "4:3:8", 余采馨: "4:3:6", 鄭筱舢: "4:3:7", 王藍庭: "4:4:5",
-};
-export const validSeat = (seat: string) => {
-  const five = /^5:([01]):([0-2]):([0-2]):(top|bottom)$/.exec(seat);
-  if (five) return true;
-  const four = /^4:([0-4]):([1-8])$/.exec(seat);
-  return Boolean(four);
-};
+// 座位編號與座標表在 lib/seat-layout.ts（"S:x:z:t|b"）；固定座位的人（3D 辦公室寫死的 12 位設計部人物）不能被別人佔走。
+export { FIXED_SEATS } from "@/lib/seat-layout";
+export const validSeat = (seat: string) => SEAT_KEYS.has(seat);
 
 export async function seatMap(): Promise<Record<string, string>> {
   await ensureCharacterTables();

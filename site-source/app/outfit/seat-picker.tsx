@@ -3,16 +3,14 @@
 import { useEffect, useState } from "react";
 
 // 座位圖：依五樓、四樓的座位縮圖點選角色要坐的位置（會議室、茶水間不算座位）。沒選＝在辦公室自由走動，隨時可以回來改。
-// 座標與 pixel-plaza/index.html 的 ROW_TOPS／GROUPS／SEATS4 一致（單位：版面 px）。
-const ROW_TOPS = [355, 592, 828], GROUPS = [[463, 568, 673], [833, 938, 1043]];
-type Seat = { key: string; x: number; y: number };
-const seats5: Seat[] = [];
-for (let g = 0; g < 2; g += 1) for (let r = 0; r < 3; r += 1) for (let c = 0; c < 3; c += 1) for (const pos of ["top", "bottom"] as const)
-  seats5.push({ key: `5:${g}:${r}:${c}:${pos}`, x: GROUPS[g][c], y: pos === "top" ? ROW_TOPS[r] - 34 : ROW_TOPS[r] + 120 });
-const seats4: Seat[] = [];
-for (let g = 0; g < 5; g += 1) for (let slot = 1; slot <= 8; slot += 1) { const edge = 382.5 + 232.5 * g + 40, k = (slot - 1) % 4; seats4.push({ key: `4:${g}:${slot}`, x: 39 + 52.5 + 105 * k, y: slot > 4 ? edge + 120 : edge - 34 }); }
-const desks5 = GROUPS.flatMap((cols) => cols.flatMap((x) => ROW_TOPS.map((top) => ({ x: x - 50, y: top, w: 100, h: 86 }))));
-const desks4 = Array.from({ length: 5 }, (_, g) => ({ x: 39, y: 382.5 + 232.5 * g + 40 + 6, w: 420, h: 80 }));
+// 座位資料與座標在 lib/seat-layout.ts（量自 3D 辦公室的實際椅子）。
+import { SEATS_4F, SEATS_5F, desksOf, type SeatPos } from "@/lib/seat-layout";
+const FX4 = 3600;
+// 非座位的區域（虛線框，只當方位提示）：[x, z, 寬, 高, 文字]；四樓座標已扣掉 3600 偏移
+const ZONES_5: Array<[number, number, number, number, string]> = [[6, -60, 1189, 290, "廁所／會議室 A／電梯"], [6, 1050, 1189, 500, "會議室 B／C／D・茶水間"]];
+const ZONES_4: Array<[number, number, number, number, string]> = [[-90, -90, 1500, 360, "電梯／廁所／茶水間（長桌）"], [830, 400, 300, 320, "會議室 H"], [640, 1330, 440, 200, "會議室 F／G"]];
+const view5 = { x0: 0, z0: -80, w: 1201, h: 1640, seats: SEATS_5F, desks: desksOf(SEATS_5F), zones: ZONES_5, r: 26, font: 54 };
+const view4 = { x0: -100, z0: -100, w: 1530, h: 1700, seats: SEATS_4F.map((s) => ({ ...s, x: s.x - FX4 })), desks: desksOf(SEATS_4F).map((d) => ({ ...d, x: d.x - FX4 })), zones: ZONES_4, r: 24, font: 48 };
 
 type SeatData = { fixed: Record<string, string>; seats: Record<string, string>; me: string; targets: string[] };
 
@@ -50,7 +48,7 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
   const mine = data.seats[name] || "";
   const ownerOf = (key: string) => Object.entries(data.fixed).find(([, s]) => s === key)?.[0] || Object.entries(data.seats).find(([, s]) => s === key)?.[0] || "";
   const fixedName = Object.keys(data.fixed).includes(name);
-  const view = floor === 5 ? { w: 1201, h: 1560, seats: seats5, desks: desks5 } : { w: 500, h: 1560, seats: seats4, desks: desks4 };
+  const view = floor === 5 ? view5 : view4;
 
   return <section className="persona-card">
     <h3 style={{ margin: "0 0 4px" }}>座位圖</h3>
@@ -63,16 +61,14 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
       {mine && <button onClick={() => void choose("")} disabled={busy}>清除（自由走動）</button>}
       <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>{([5, 4] as const).map((f) => <button key={f} onClick={() => setFloor(f)} style={{ fontWeight: floor === f ? 800 : 500, outline: floor === f ? "2px solid #2fbf57" : "none" }}>{f}F</button>)}</span>
     </div>
-    {fixedName ? <p className="persona-hint">{name} 在 3D 辦公室有固定座位，不能另外指定。</p> : <svg viewBox={`0 0 ${view.w} ${view.h}`} style={{ width: "100%", maxWidth: floor === 5 ? 520 : 240, display: "block", margin: "0 auto", background: "#eef2f5", borderRadius: 12 }}>
-      {floor === 5 ? <><rect x="6" y="6" width={view.w - 12} height="236" fill="none" stroke="#9aa7b2" strokeDasharray="14 10" strokeWidth="4" /><text x={view.w / 2} y="130" textAnchor="middle" fontSize="54" fill="#8794a0">廁所／會議室 A／電梯</text>
-        <rect x="6" y="1040" width={view.w - 12} height="514" fill="none" stroke="#9aa7b2" strokeDasharray="14 10" strokeWidth="4" /><text x={view.w / 2} y="1290" textAnchor="middle" fontSize="54" fill="#8794a0">會議室 B／C／D・茶水間</text></>
-        : <><rect x="6" y="6" width={view.w - 12} height="350" fill="none" stroke="#9aa7b2" strokeDasharray="14 10" strokeWidth="4" /><text x={view.w / 2} y="190" textAnchor="middle" fontSize="40" fill="#8794a0">電梯／廁所／茶水間</text></>}
+    {fixedName ? <p className="persona-hint">{name} 在 3D 辦公室有固定座位，不能另外指定。</p> : <svg viewBox={`${view.x0} ${view.z0} ${view.w} ${view.h}`} style={{ width: "100%", maxWidth: floor === 5 ? 520 : 640, display: "block", margin: "0 auto", background: "#eef2f5", borderRadius: 12 }}>
+      {view.zones.map(([x, z, w, h, label]) => <g key={label}><rect x={x} y={z} width={w} height={h} fill="none" stroke="#9aa7b2" strokeDasharray="14 10" strokeWidth="4" /><text x={x + w / 2} y={z + h / 2} textAnchor="middle" fontSize={view.font} fill="#8794a0">{label}</text></g>)}
       {view.desks.map((d, i) => <rect key={i} x={d.x} y={d.y} width={d.w} height={d.h} rx="10" fill="#cfd8e0" stroke="#6b7a88" strokeWidth="3" />)}
-      {view.seats.map((s) => {
-        const owner = ownerOf(s.key), isMine = s.key === mine, free = !owner;
-        return <g key={s.key} onClick={() => free || isMine ? void choose(isMine ? "" : s.key) : undefined} style={{ cursor: free || isMine ? "pointer" : "not-allowed" }}>
+      {view.seats.map((s: SeatPos) => {
+        const key = floor === 4 ? `S:${s.x + FX4}:${s.z}:${s.back ? "b" : "t"}` : s.key, owner = ownerOf(key), isMine = key === mine, free = !owner;
+        return <g key={key} onClick={() => free || isMine ? void choose(isMine ? "" : key) : undefined} style={{ cursor: free || isMine ? "pointer" : "not-allowed" }}>
           <title>{isMine ? `${name}（點一下清除）` : owner ? `${owner} 的座位` : "可選"}</title>
-          <circle cx={s.x} cy={s.y} r={floor === 5 ? 26 : 22} fill={isMine ? "#ff9f2e" : free ? "#43d86c" : "#9aa7b2"} stroke="#1b2a33" strokeWidth="4" />
+          <circle cx={s.x} cy={s.z} r={view.r} fill={isMine ? "#ff9f2e" : free ? "#43d86c" : "#9aa7b2"} stroke="#1b2a33" strokeWidth="4" />
         </g>;
       })}
     </svg>}
@@ -81,8 +77,7 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
 }
 
 function seatLabel(key: string) {
-  const f = /^5:(\d):(\d):(\d):(top|bottom)$/.exec(key);
-  if (f) return `5F・${f[1] === "0" ? "設計部區" : "同仁區"}第 ${Number(f[2]) + 1} 排第 ${Number(f[3]) + 1} 欄（${f[4] === "top" ? "桌後" : "桌前"}）`;
-  const g = /^4:(\d):(\d)$/.exec(key);
-  return g ? `4F・第 ${Number(g[1]) + 1} 組 ${g[2]} 號` : key;
+  const m = /^S:(\d+):(\d+):(t|b)$/.exec(key);
+  if (!m) return key;
+  return Number(m[1]) >= 3000 ? "4F 辦公桌" : "5F 辦公桌";
 }
