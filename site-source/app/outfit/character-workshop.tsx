@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, LoaderCircle, Upload, UserRound } from "lucide-react";
 import { normalizePhoto } from "@/lib/normalize-photo";
 import {
-  ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, toBlob,
+  ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, splitGrid, toBlob,
   type Adjust, type Canvas, type Measure,
 } from "@/lib/character-image";
 
@@ -41,6 +41,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
   const [failed, setFailed] = useState<number[]>([]);
   const [turn, setTurn] = useState(0);
   const [myName, setMyName] = useState("");
+  const [quality, setQuality] = useState<"medium" | "high">("medium");
   const [target, setTarget] = useState("");
   const [targets, setTargets] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
@@ -75,6 +76,9 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
           if (!sheet) { setStage("upload"); return; }
           setSheetCells([0, 1, 2].map((i) => { const c = mkCell(); c.getContext("2d")!.drawImage(sheet, i * SHEET_CELL, 0, SHEET_CELL, SHEET_CELL, 0, 0, SHEET_CELL, SHEET_CELL); return c; }));
           const got: Record<number, Canvas> = {};
+          // 先讀 8 角度合圖，再用單獨補算過的角度蓋上去
+          const grid = await fetchCanvas(p.job.id, "grid");
+          if (grid) { const cs = splitGrid(grid).map((c) => clean(c)); if (cs.length === 8 && cs.every((c) => measure(c))) AI_ANGLES.forEach((d, i) => { got[d] = cs[i]; }); }
           // 不看次數紀錄，直接逐一讀圖：圖在伺服器上就算數（避免紀錄漏掉而重複計費）
           await Promise.all(AI_ANGLES.map(async (deg) => { const c = await fetchCanvas(p.job!.id, `a${String(deg).padStart(3, "0")}`); if (c) got[deg] = clean(c); }));
           setAi(got);
@@ -115,19 +119,34 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       form.set("sheet", await toBlob(sheet), "sheet.png"); form.set("align", JSON.stringify({ adj, measures }));
       await postJson("/api/character/" + job.id + "/confirm", token, form);
       setSheetCells(cells); setJob({ ...job, status: "angles" }); setStage("angles"); setBusy("");
-      void fillAngles(undefined, job.id, {});   // 確認後由系統自動補角度，不需要再按鈕
+      void fillGrid(job.id);   // 確認後由系統自動一次補齊 8 個角度，不需要再按鈕
       return;
     } catch (cause) { setError(cause instanceof Error ? cause.message : "儲存失敗"); }
     finally { setBusy((b) => b === "儲存對位" ? "" : b); }
   }
 
   async function runAngle(jobId: string, deg: number) {
-    await postJson("/api/character/" + jobId + "/angle", token, JSON.stringify({ deg }), true);
+    await postJson("/api/character/" + jobId + "/angle", token, JSON.stringify({ deg, quality }), true);
     const c = await fetchCanvas(jobId, `a${String(deg).padStart(3, "0")}`, true);
     if (!c) throw new Error("讀不到生成的角度圖");
     setAi((prev) => ({ ...prev, [deg]: clean(c) }));
   }
-  /** 一次補齊還沒有的角度（同時最多 2 個，避免一次打爆額度）；失敗的記下來，可以單獨重算。 */
+  /** 其餘 8 個角度一次生成（一張 4×2 合圖，再切開）：比逐張生成便宜很多；個別不滿意再單獨補算。 */
+  async function fillGrid(jobId = job?.id) {
+    if (!jobId) return;
+    setError(""); setBusy("8 個角度生成中"); setFailed([]);
+    try {
+      await postJson("/api/character/" + jobId + "/grid", token, JSON.stringify({ quality }), true);
+      const g = await fetchCanvas(jobId, "grid", true);
+      if (!g) throw new Error("讀不到生成的角度合圖，請按「重試」。");
+      const cs = splitGrid(g).map((c) => clean(c));
+      if (cs.length !== 8 || cs.some((c) => !measure(c))) throw new Error("合圖裡切不出 8 個完整人物，請按「重試」重新生成。");
+      const next: Record<number, Canvas> = {}; AI_ANGLES.forEach((d, i) => { next[d] = cs[i]; });
+      setAi(next); setStage("review");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "生成失敗，請稍後再試。"); setFailed([...AI_ANGLES]); }
+    finally { setBusy(""); }
+  }
+  /** 逐張補還沒有的角度（同時最多 2 個，避免一次打爆額度）；失敗的記下來，可以單獨重算。 */
   async function fillAngles(only?: number, jobId = job?.id, have: Record<number, Canvas> = ai) {
     if (!jobId || (busy && !jobId)) return;
     setError(""); setBusy("補角度中"); setFailed([]);
@@ -211,15 +230,16 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     {stage === "angles" && <div className="persona-card" style={{ textAlign: "center", padding: "36px 20px" }}>
       <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
       <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
-      <p className="persona-hint">AI 正依你確認的三視圖補上其餘 8 個角度，約 3～8 分鐘，完成會自動進入檢查畫面。{!busy && Object.keys(ai).length ? `已完成的 ${Object.keys(ai).length} 個角度都已存起來，只會補算缺的，不會重複計費。` : "做好的角度會即時存起來；中途離開，下次回來只補缺的。"}</p>
+      <p className="persona-hint">AI 正依你確認的三視圖，一次畫出其餘 8 個角度，約 1～3 分鐘，完成會自動進入檢查畫面；不滿意的角度之後可以單獨補算。{!busy && Object.keys(ai).length ? `已完成的 ${Object.keys(ai).length} 個角度都已存起來，只會補算缺的，不會重複計費。` : "做好的角度會即時存起來；中途離開，下次回來只補缺的。"}</p>
       <div style={{ height: 10, borderRadius: 99, background: "#e4eaef", overflow: "hidden", margin: "14px auto", maxWidth: 420 }}><div style={{ height: "100%", width: `${Object.keys(ai).length / 8 * 100}%`, background: "linear-gradient(90deg,#43d86c,#1aa844)", transition: "width .4s" }} /></div>
       <p style={{ fontWeight: 700 }}>已完成 {Object.keys(ai).length} / 8　{busy ? `（${elapsed} 秒）` : ""}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, maxWidth: 560, margin: "10px auto" }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ fontSize: 11 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ aspectRatio: "1", background: "#e4eaef", borderRadius: 8, display: "grid", placeItems: "center" }}>{failed.includes(deg) ? "✕" : busy ? <LoaderCircle size={12} className="spin" /> : ""}</div>}{deg}°</div>)}</div>
-      {!busy && <button className="generate" onClick={() => void fillAngles()}>{failed.length ? "重試失敗的角度" : "繼續補齊"}</button>}
+      {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid())}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
     </div>}
 
     {stage === "review" && <div className="persona-card">
       <p className="persona-hint">拖動滑桿轉一圈檢查每個角度：頭、帽子、眼鏡、衣服是不是和三視圖一致，高度與腳底有沒有跳動。哪個角度壞了就單獨重算；都沒問題按「確認上線」。</p>
+      {canAll && <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>角度品質（管理者測試）：<select value={quality} onChange={(e) => setQuality(e.target.value as "medium" | "high")}><option value="medium">medium（省錢）</option><option value="high">high（較細緻）</option></select>　<button onClick={() => void fillGrid()} disabled={Boolean(busy)}>用此品質整組重算 8 個角度</button></label>}
       <canvas ref={turnRef} width={320} height={320} style={{ width: 320, maxWidth: "100%", borderRadius: 14, display: "block", margin: "0 auto" }} />
       <input type="range" min={0} max={ANGLES - 1} step={1} value={turn} onChange={(e) => setTurn(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }} />
       <p style={{ textAlign: "center", fontWeight: 700 }}>{turn * 30}°</p>

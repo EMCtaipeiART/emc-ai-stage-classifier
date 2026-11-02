@@ -78,6 +78,20 @@ export function buildAnglePrompt(deg: number, described: string) {
   ].filter(Boolean).join("\n\n");
 }
 
+const GRID_ORDER = [30, 60, 120, 150, 210, 240, 300, 330];
+/** 其餘 8 個角度一次畫在同一張圖（4 欄 × 2 排），一次呼叫就好，比逐張生成便宜很多；不滿意的角度再單獨補算。 */
+export function buildGridPrompt(described: string) {
+  return [
+    `The FIRST attached image is a CHARACTER SHEET with three views of ONE character: FRONT, SIDE facing right, BACK. The SECOND attached image is a STYLE REFERENCE strip of an existing character showing how a 12-view turntable looks (views every 30 degrees).`,
+    `Draw the SAME character from the sheet EIGHT more times in ONE image, as a clean GRID of 4 columns x 2 rows, every figure full-body, the same size as the figures on the sheet, standing straight with the soles of the shoes on the same baseline within each row, clear empty space between all figures, nothing touching or cropped, about 6% empty margin around the whole image, and a clear empty horizontal gap between the two rows.`,
+    `Row 1, left to right: ${GRID_ORDER.slice(0, 4).map((d) => `[${d}°] ${ANGLE_TEXT[d]}`).join(" || ")}.`,
+    `Row 2, left to right: ${GRID_ORDER.slice(4).map((d) => `[${d}°] ${ANGLE_TEXT[d]}`).join(" || ")}.`,
+    `KEEP EXACTLY in all eight figures: the character's identity, hair, face, outfit, colors, graphics, accessories (hat, glasses, watch, bag), body proportions, outline thickness and the art style of the sheet. No text, no numbers, no labels, no frame, transparent background, no ground shadow.`,
+    described ? `Character notes: ${described}` : "",
+    STYLE,
+  ].filter(Boolean).join("\n\n");
+}
+
 export type ImageUsage = { input_tokens?: number; output_tokens?: number; input_tokens_details?: { text_tokens?: number; image_tokens?: number } };
 export function costOf(usage: ImageUsage | undefined) {
   if (!usage) return 0;
@@ -87,14 +101,14 @@ export function costOf(usage: ImageUsage | undefined) {
 }
 
 /** 呼叫 images/edits 生成一張圖；回傳 PNG 位元組與估計費用。 */
-export async function editImage(apiKey: string, opts: { prompt: string; images: Array<{ bytes: Uint8Array; type: string; name: string }>; size?: "3views" | "square" }): Promise<{ png: Uint8Array; costUsd: number; model: string; transparent: boolean; usage: { input: number; output: number; total: number } }> {
+export async function editImage(apiKey: string, opts: { prompt: string; images: Array<{ bytes: Uint8Array; type: string; name: string }>; size?: "3views" | "square" | "grid"; quality?: "high" | "medium" }): Promise<{ png: Uint8Array; costUsd: number; model: string; transparent: boolean; usage: { input: number; output: number; total: number } }> {
   const model = process.env.OPENAI_IMAGE_MODEL || IMAGE_MODEL_DEFAULT;
   const build = (transparent: boolean) => {
     const body = new FormData();
     body.set("model", model);
     body.set("prompt", opts.prompt);
-    body.set("size", opts.size === "square" ? "1024x1024" : imageSizeFor(model));
-    body.set("quality", "high");
+    body.set("size", opts.size === "square" ? "1024x1024" : opts.size === "grid" ? "1536x1024" : imageSizeFor(model));
+    body.set("quality", opts.quality || "high");
     if (transparent) body.set("background", "transparent");
     body.set("output_format", "png");
     body.set("n", "1");

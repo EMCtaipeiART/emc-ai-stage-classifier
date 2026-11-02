@@ -14,7 +14,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
   const job = await ownJob(id, auth.who);
   if (!job) return Response.json({ error: "找不到這張製作單。" }, { status: 404 });
-  const body = await request.json().catch(() => ({})) as { deg?: number };
+  const body = await request.json().catch(() => ({})) as { deg?: number; quality?: string };
+  const quality = canManageAll(auth.who) && body.quality === "high" ? "high" : "medium";   // 補算單一角度預設 medium（管理者可選 high）
   const deg = Number(body.deg);
   if (!(AI_ANGLES as readonly number[]).includes(deg)) return Response.json({ error: "不支援的角度。" }, { status: 400 });
   const counts = (() => { try { return JSON.parse(job.angles_json || "{}") as Record<string, number>; } catch { return {}; } })();
@@ -24,10 +25,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   return heartbeatJson(async () => {
     const reference = await turntableReference();
+    const grid = await readAsset(jobKey(id, "grid"));   // 有 8 角度合圖就一起當參考，補出來的角度才不會和其他角度長得不一樣
     const started = Date.now(), secs = () => Math.round((Date.now() - started) / 100) / 10, userId = auth.who.name || auth.who.account;
     let result: Awaited<ReturnType<typeof editImage>>;
     try {
-      result = await editImage(apiKey, { prompt: buildAnglePrompt(deg, job.described), images: [{ bytes: sheet, type: "image/png", name: "sheet.png" }, { bytes: reference, type: "image/png", name: "turntable-reference.png" }], size: "square" });
+      result = await editImage(apiKey, { prompt: buildAnglePrompt(deg, job.described), images: [{ bytes: sheet, type: "image/png", name: "sheet.png" }, { bytes: reference, type: "image/png", name: "turntable-reference.png" }, ...(grid ? [{ bytes: grid, type: "image/png", name: "grid.png" }] : [])], size: "square", quality });
     } catch (cause) {
       await logGeneration({ userId, label: `${deg}°`, description: job.prompt, seconds: secs(), jobId: id, error: cause instanceof Error ? cause.message : "生成失敗" });
       throw cause;

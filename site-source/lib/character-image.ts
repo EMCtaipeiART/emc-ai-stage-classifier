@@ -74,7 +74,7 @@ export function measure(c: Canvas): Measure | null {
 }
 
 /** 把「三個人排一排」的圖切成三張。用欄位上有沒有像素找縫；找不到三塊就平分。 */
-export function splitViews(c: Canvas): Canvas[] {
+export function splitViews(c: Canvas, n = 3): Canvas[] {
   const g = c.getContext("2d", { willReadFrequently: true })!, d = g.getImageData(0, 0, c.width, c.height).data;
   const col = new Uint32Array(c.width);
   for (let y = 0; y < c.height; y += 1) for (let x = 0; x < c.width; x += 1) if (d[(y * c.width + x) * 4 + 3] > 100) col[x] += 1;
@@ -87,8 +87,8 @@ export function splitViews(c: Canvas): Canvas[] {
   // 縫小於 1.5% 寬度的視為同一塊（手臂與身體之間的空隙），再取最寬的三塊
   const merged: Array<[number, number]> = [];
   for (const r of runs) { const last = merged[merged.length - 1]; if (last && r[0] - last[1] < c.width * 0.015) last[1] = r[1]; else merged.push([r[0], r[1]]); }
-  const top3 = merged.length >= 3 ? [...merged].sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, 3).sort((a, b) => a[0] - b[0]) : null;
-  const cuts = top3 ? top3.map((r, i) => [i === 0 ? 0 : Math.floor((top3[i - 1][1] + r[0]) / 2), i === 2 ? c.width : Math.floor((r[1] + top3[i + 1][0]) / 2)]) : [[0, c.width / 3], [c.width / 3, c.width * 2 / 3], [c.width * 2 / 3, c.width]];
+  const top3 = merged.length >= n ? [...merged].sort((a, b) => (b[1] - b[0]) - (a[1] - a[0])).slice(0, n).sort((a, b) => a[0] - b[0]) : null;
+  const cuts = top3 ? top3.map((r, i) => [i === 0 ? 0 : Math.floor((top3[i - 1][1] + r[0]) / 2), i === n - 1 ? c.width : Math.floor((r[1] + top3[i + 1][0]) / 2)]) : Array.from({ length: n }, (_, i) => [c.width * i / n, c.width * (i + 1) / n]);
   return cuts.map(([a, b]) => { const out = mk(Math.max(1, Math.round(b - a)), c.height); out.getContext("2d")!.drawImage(c, Math.round(a), 0, out.width, c.height, 0, 0, out.width, c.height); return out; });
 }
 
@@ -157,4 +157,14 @@ export function assembleFrames(sheetCells: Canvas[], ai: Record<number, Canvas |
     if (deg === 270) return mirror(sheetCells[1]);
     return ai[deg] || null;
   });
+}
+
+/** 8 角度合圖（4 欄 × 2 排）切成 8 張，順序：30、60、120、150、210、240、300、330。 */
+export function splitGrid(c: Canvas): Canvas[] {
+  const half = Math.floor(c.height / 2), out: Canvas[] = [];
+  for (const [y, h] of [[0, half], [half, c.height - half]]) {
+    const row = mk(c.width, h); row.getContext("2d")!.drawImage(c, 0, y, c.width, h, 0, 0, c.width, h);
+    out.push(...splitViews(row, 4));
+  }
+  return out;
 }

@@ -6,7 +6,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if ("error" in auth) return auth.error;
   const { id, file } = await context.params;
   const name = file.replace(/\.png$/, "");
-  if (!/^(views3|sheet|a\d{3})$/.test(name) || !await ownJob(id, auth.who)) return new Response("Not found", { status: 404 });
+  if (!/^(views3|sheet|grid|a\d{3})$/.test(name) || !await ownJob(id, auth.who)) return new Response("Not found", { status: 404 });
   const bytes = await readAsset(jobKey(id, name));
   return bytes ? new Response(bytes as BodyInit, { headers: PNG_HEADERS }) : new Response("Not found", { status: 404 });
 }

@@ -18,6 +18,8 @@ export function ensureCharacterTables() {
 
 export type JobRow = { id: string; account: string; name: string; status: string; prompt: string; described: string; start_runs: number; angles_json: string; align_json: string; cost_usd: number; created_at: string; updated_at: string };
 /** 視角（度）：0 正面、90 朝右側面、180 背面；270 是 90 的鏡像（不用生成）。要 AI 生成的是其餘 8 個。 */
+/** 8 角度合圖在次數紀錄裡用的編號（不是真的角度）。 */
+export const GRID_KEY = 0;
 export const AI_ANGLES = [30, 60, 120, 150, 210, 240, 300, 330] as const;
 export const FREE_START_RUNS = 3;   // 每人最多重新生成三視圖幾次（管理者不限）
 
@@ -161,6 +163,6 @@ export async function moveJobPublish(jobId: string, account: string, to: string)
 
 export async function deleteJob(jobId: string) {
   await unpublishJob(jobId);
-  for (const name of ["views3", "sheet", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
+  for (const name of ["views3", "sheet", "grid", ...AI_ANGLES.map(angleName)]) await deleteAsset(jobKey(jobId, name)).catch(() => undefined);
   await env.DB!.prepare("DELETE FROM character_jobs WHERE id = ?").bind(jobId).run();
 }
