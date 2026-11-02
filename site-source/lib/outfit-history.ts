@@ -38,7 +38,7 @@ export async function saveOutfitRecord(record: OutfitRecord) {
     .run();
 }
 
-type Row = { id: string; user_id: string; created_at: string; status: string; model: string; quality: string; description: string; described: string; photo_count: number; seconds: number; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; transparent: number; image_key: string; error: string; coin_cost: number; coin_exempt: number; variants: number };
+type Row = { id: string; user_id: string; created_at: string; status: string; model: string; quality: string; description: string; described: string; photo_count: number; seconds: number; input_tokens: number; output_tokens: number; total_tokens: number; cost_usd: number; transparent: number; image_key: string; error: string; coin_cost: number; coin_exempt: number; variants: number; item_id?: string };
 
 export async function listOutfitHistory(limit = 50) {
   await ensureTable();
@@ -48,7 +48,7 @@ export async function listOutfitHistory(limit = 50) {
     id: row.id, createdAt: row.created_at, userId: row.user_id, status: row.status, model: row.model, quality: row.quality,
     description: row.description, described: row.described, photoCount: row.photo_count, seconds: row.seconds,
     usage: { input: row.input_tokens, output: row.output_tokens, total: row.total_tokens, costUsd: row.cost_usd },
-    transparent: Boolean(row.transparent), error: row.error, coinCost: row.coin_cost || 0, coinExempt: Boolean(row.coin_exempt), variants: row.variants || 1, imageUrl: row.image_key ? `/api/outfit/history/${row.id}/image` : "",
+    transparent: Boolean(row.transparent), error: row.error, coinCost: row.coin_cost || 0, coinExempt: Boolean(row.coin_exempt), variants: row.variants || 1, itemId: row.item_id || "", imageUrl: row.image_key ? `/api/outfit/history/${row.id}/image` : "",
   }));
   return { items, totals: { runs: totals?.runs ?? 0, ok: totals?.ok ?? 0, tokens: totals?.tokens ?? 0, costUsd: totals?.cost ?? 0 } };
 }

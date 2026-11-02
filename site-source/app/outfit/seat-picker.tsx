@@ -50,18 +50,18 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
   const fixedName = Object.keys(data.fixed).includes(name);
   const view = floor === 5 ? view5 : view4;
 
-  return <section className="persona-card">
-    <h3 style={{ margin: "0 0 4px" }}>座位圖</h3>
-    <p className="persona-hint">點一個綠色的位置，角色上線後就固定坐在那裡；不選就在辦公室自由走動，之後隨時可以回來改。會議室、茶水間不能當座位。</p>
+  return <section className="preview">
+    <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>座位圖</h2></div></div>
+    <p className="history-total">點一個綠色的位置，角色上線後就固定坐在那裡；不選就在辦公室自由走動，之後隨時可以回來改。會議室、茶水間不能當座位。</p>
     {error && <div className="error" role="alert">{error}</div>}
     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "8px 0" }}>
       {canAll && <label>設定誰的座位：<select value={name} onChange={(e) => setName(e.target.value)}>{data.targets.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>}
       {!canAll && <b>{name}</b>}
       <span>目前：{fixedName ? "3D 辦公室固定座位" : mine ? seatLabel(mine) : "自由走動"}</span>
-      {mine && <button onClick={() => void choose("")} disabled={busy}>清除（自由走動）</button>}
-      <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>{([5, 4] as const).map((f) => <button key={f} onClick={() => setFloor(f)} style={{ fontWeight: floor === f ? 800 : 500, outline: floor === f ? "2px solid #2fbf57" : "none" }}>{f}F</button>)}</span>
+      {mine && <button className="open-btn" onClick={() => void choose("")} disabled={busy}>清除（自由走動）</button>}
+      <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>{([5, 4] as const).map((f) => <button key={f} className={floor === f ? "open-btn" : ""} onClick={() => setFloor(f)} style={{ fontWeight: floor === f ? 800 : 500, border: "1px solid " + (floor === f ? "var(--green)" : "var(--line)"), borderRadius: 8, padding: "8px 14px", background: floor === f ? "var(--tint)" : "var(--surface)" }}>{f}F</button>)}</span>
     </div>
-    {fixedName ? <p className="persona-hint">{name} 在 3D 辦公室有固定座位，不能另外指定。</p> : <svg viewBox={`${view.x0} ${view.z0} ${view.w} ${view.h}`} style={{ width: "100%", maxWidth: floor === 5 ? 520 : 640, display: "block", margin: "0 auto", background: "#eef2f5", borderRadius: 12 }}>
+    {fixedName ? <p className="history-total">{name} 在 3D 辦公室有固定座位，不能另外指定。</p> : <svg viewBox={`${view.x0} ${view.z0} ${view.w} ${view.h}`} style={{ width: "100%", maxWidth: floor === 5 ? 520 : 640, display: "block", margin: "0 auto", background: "#eef2f5", borderRadius: 12 }}>
       {view.zones.map(([x, z, w, h, label]) => <g key={label}><rect x={x} y={z} width={w} height={h} fill="none" stroke="#9aa7b2" strokeDasharray="14 10" strokeWidth="4" /><text x={x + w / 2} y={z + h / 2} textAnchor="middle" fontSize={view.font} fill="#8794a0">{label}</text></g>)}
       {view.desks.map((d, i) => <rect key={i} x={d.x} y={d.y} width={d.w} height={d.h} rx="10" fill="#cfd8e0" stroke="#6b7a88" strokeWidth="3" />)}
       {view.seats.map((s: SeatPos) => {

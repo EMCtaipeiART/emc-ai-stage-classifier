@@ -191,3 +191,4 @@ html:has(.studio.embed){overflow:hidden}
 .studio .lib-thumb{width:200px}
 .studio .rules{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--green-ink);background:var(--tint);border:1px solid var(--tint-line);border-radius:8px;padding:8px 10px}
 .studio small.cost{display:block;font-size:10px;color:var(--faint);margin-top:9px;text-align:center}
+.studio .preview select{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 10px;font-size:12px}
