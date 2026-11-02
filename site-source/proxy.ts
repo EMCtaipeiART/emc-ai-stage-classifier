@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { allowedOrigin, authorize, AUTH_COOKIE, corsHeaders } from "@/lib/access";
 
 // /outfit 只是頁面外殼（沒有任何資料）：設計需求系統的 token 在網址 # 後面，瀏覽器導覽時帶不了標頭，所以頁面本身不擋，資料與生成的 API 一律要驗證。
-const PUBLIC_PATHS = new Set(["/login", "/api/login", "/api/logout", "/favicon.svg", "/outfit"]);
+const PUBLIC_PATHS = new Set(["/favicon.svg", "/outfit"]);
 
 export async function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+  const { pathname } = request.nextUrl;
   const origin = allowedOrigin(request.headers.get("origin"));
   const cors = origin && pathname.startsWith("/api/") ? corsHeaders(origin) : null;
 
@@ -16,9 +16,7 @@ export async function proxy(request: NextRequest) {
     if (pathname.startsWith("/api/")) {
       return NextResponse.json({ error: "需要登入：請輸入團隊密碼。", reason: "AUTH_REQUIRED" }, { status: 401, headers: cors ?? undefined });
     }
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname + search);
-    return NextResponse.redirect(loginUrl);
+    return NextResponse.redirect("https://emc-art.com/");   // 沒有登入帳號：回設計需求系統登入後再進來
   }
 
   const response = NextResponse.next();

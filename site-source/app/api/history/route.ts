@@ -1,7 +1,6 @@
 import { desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { analysisHistory } from "@/db/schema";
-import { accessPassword } from "@/lib/access";
 import { usageCostUsd } from "@/lib/pricing";
 
 type StoredMedia = { key: string; name: string; type: string; kind: "image" | "slides" };
@@ -63,7 +62,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       items,
-      accessProtected: Boolean(accessPassword()),
+      accessProtected: true,
       totals: {
         analyses: usageRows.length,
         tokens: usageRows.reduce((total, row) => total + row.total, 0),

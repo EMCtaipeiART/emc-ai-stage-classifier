@@ -1,10 +1,6 @@
 import { env } from "cloudflare:workers";
 
-// 團隊密碼登入：Cloudflare 上設定 ACCESS_PASSWORD secret 才會啟用；本機未設定時不擋。
-// 驗證方式（任一通過即可）：
-//   1. 網站本身登入後的 cookie
-//   2. X-EMC-Access：跨網站（EMC 設計需求系統前台）用團隊密碼換到的 token，不依賴第三方 cookie
-//   3. X-EMC-Editor-Token：EMC 設計需求系統已登入帳號的 token，向 machi-design-api 驗證
+// 驗證：只認 X-EMC-Editor-Token（EMC 設計需求系統已登入帳號的 token，向 machi-design-api 驗證）。團隊密碼已於 2026-11-02 移除。
 export const AUTH_COOKIE = "emc_stage_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 export const ACCESS_HEADER = "x-emc-access";
@@ -66,12 +62,9 @@ async function verifyEditorToken(token: string): Promise<string> {
   return account;
 }
 
-/** 回傳通過驗證的使用者代號；未通過回傳 null。沒有設定密碼時一律通過。 */
-export async function authorize(request: Request, cookieValue?: string): Promise<string | null> {
-  const password = accessPassword();
-  if (!password) return "local-user";
-  const expected = await sessionToken(password);
-  if (cookieValue === expected || request.headers.get(ACCESS_HEADER) === expected) return "team-password";
+/** 回傳通過驗證的使用者代號；未通過回傳 null。只認 EMC 設計需求系統已登入帳號的 token（不再有團隊密碼）；只有本機開發（非 production）不擋。 */
+export async function authorize(request: Request, _cookieValue?: string): Promise<string | null> {
+  if (process.env.NODE_ENV !== "production") return "local-user";
   const editorToken = request.headers.get(EDITOR_TOKEN_HEADER);
   if (editorToken) {
     let account = await verifyEditorToken(editorToken).catch(() => "");
