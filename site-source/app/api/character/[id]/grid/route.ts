@@ -2,6 +2,7 @@ import { buildGridPrompt, editImage, turntableReference } from "@/lib/character-
 import { deleteAsset } from "@/lib/storage";
 import { AI_ANGLES, angleName, GRID_KEY, bumpAngle, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, readAsset, requireWho } from "@/lib/character";
 import { canManageAll } from "@/lib/coins-client";
+import { env } from "cloudflare:workers";
 
 export const runtime = "edge";
 const MAX_TRIES = 3;   // 整組 8 角度合圖最多重算幾次（管理者不限）
@@ -34,6 +35,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     await putAsset(jobKey(id, "grid"), result.png, "image/png");
     await bumpAngle(id, GRID_KEY, result.costUsd);
+    await env.DB!.prepare("UPDATE character_jobs SET angles_json = json_remove(COALESCE(NULLIF(angles_json, ''), '{}'), '$.\"-1\"') WHERE id = ?").bind(id).run();   // 代放合圖的旗標作廢
     for (const deg of AI_ANGLES) await deleteAsset(jobKey(id, angleName(deg))).catch(() => undefined);   // 整組重算後，舊的單獨補算圖作廢
     await logGeneration({ userId, label: `8角度合圖・${quality}`, description: job.prompt, seconds: secs(), jobId: id, png: result.png, costUsd: result.costUsd, usage: result.usage, model: result.model, transparent: result.transparent });
     return { ok: true, tries: (counts[GRID_KEY] || 0) + 1, limit: canManageAll(auth.who) ? 0 : MAX_TRIES, costUsd: result.costUsd };

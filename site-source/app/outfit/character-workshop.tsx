@@ -138,11 +138,12 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     setAi((prev) => ({ ...prev, [deg]: clean(c) }));
   }
   /** 其餘 8 個角度一次生成（一張 4×2 合圖，再切開）：比逐張生成便宜很多；個別不滿意再單獨補算。 */
-  async function fillGrid(jobId = job?.id) {
+  async function fillGrid(jobId = job?.id, force = false) {
     if (!jobId) return;
     setError(""); setBusy("8 個角度生成中"); setFailed([]);
     try {
-      await postJson("/api/character/" + jobId + "/grid", token, JSON.stringify({ quality }), true);
+      const manual = !force && Boolean((job?.angles as Record<string, number> | undefined)?.["-1"]);   // 管理者已代為放入算好的合圖：直接用，不再呼叫 API
+      if (!manual) await postJson("/api/character/" + jobId + "/grid", token, JSON.stringify({ quality }), true);
       const g = await fetchCanvas(jobId, "grid", true);
       if (!g) throw new Error("讀不到生成的角度合圖，請按「重試」。");
       const cs = splitGrid(g).map((c) => clean(c));
@@ -266,12 +267,12 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <div style={{ height: 10, borderRadius: 99, background: "#e4eaef", overflow: "hidden", margin: "14px auto", maxWidth: 420 }}><div style={{ height: "100%", width: `${Object.keys(ai).length / 8 * 100}%`, background: "linear-gradient(90deg,#43d86c,#1aa844)", transition: "width .4s" }} /></div>
       <p style={{ fontWeight: 700 }}>已完成 {Object.keys(ai).length} / 8　{busy ? `（${elapsed} 秒）` : ""}</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, maxWidth: 560, margin: "10px auto" }}>{AI_ANGLES.map((deg) => <div key={deg} style={{ fontSize: 11 }}>{ai[deg] ? <Thumb canvas={ai[deg]} /> : <div style={{ aspectRatio: "1", background: "#e4eaef", borderRadius: 8, display: "grid", placeItems: "center" }}>{failed.includes(deg) ? "✕" : busy ? <LoaderCircle size={12} className="spin" /> : ""}</div>}{deg}°</div>)}</div>
-      {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid())}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
+      {!busy && <button className="generate" onClick={() => void (Object.keys(ai).length ? fillAngles() : fillGrid(undefined, true))}>{failed.length ? "重試" : "開始生成其餘角度"}</button>}
     </div>}
 
     {stage === "review" && <div className="preview" style={{ marginTop: 14 }}>
       <p className="persona-hint">拖動滑桿轉一圈檢查每個角度：頭、帽子、眼鏡、衣服是不是和三視圖一致，高度與腳底有沒有跳動。哪個角度壞了就單獨重算；都沒問題按「確認上線」。</p>
-      {canAll && <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>角度品質（管理者測試）：<select value={quality} onChange={(e) => setQuality(e.target.value as "medium" | "high")}><option value="medium">medium（省錢）</option><option value="high">high（較細緻）</option></select>　<button onClick={() => void fillGrid()} disabled={Boolean(busy)}>用此品質整組重算 8 個角度</button></label>}
+      {canAll && <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>角度品質（管理者測試）：<select value={quality} onChange={(e) => setQuality(e.target.value as "medium" | "high")}><option value="medium">medium（省錢）</option><option value="high">high（較細緻）</option></select>　<button onClick={() => void fillGrid(undefined, true)} disabled={Boolean(busy)}>用此品質整組重算 8 個角度</button></label>}
       <canvas ref={turnRef} width={320} height={320} style={{ width: 320, maxWidth: "100%", borderRadius: 14, display: "block", margin: "0 auto" }} />
       <input type="range" min={0} max={ANGLES - 1} step={1} value={turn} onChange={(e) => setTurn(Number(e.target.value))} style={{ width: "100%", marginTop: 8 }} />
       <p style={{ textAlign: "center", fontWeight: 700 }}>{turn * 30}°</p>
