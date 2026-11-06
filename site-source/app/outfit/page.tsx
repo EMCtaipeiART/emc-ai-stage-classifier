@@ -332,6 +332,20 @@ export default function OutfitPage() {
     if (!response.ok) { setHistoryError(((await response.json().catch(() => ({}))) as { error?: string }).error || "刪除失敗"); return; }
     void loadHistory();
   }
+  const [lightbox, setLightbox] = useState<string[] | null>(null);
+  function zoomRecord(record: HistoryRecord) {
+    if (!record.imageUrl) return;
+    void (async () => {
+      const count = Math.max(1, record.variants || 1);
+      const urls: string[] = [];
+      for (let k = 0; k < count; k += 1) {
+        const blobUrl = await fetch(`${record.imageUrl}${record.imageUrl.includes("?") ? "&" : "?"}v=${k}`, { headers: authHeaders() }).then((response) => response.ok ? response.blob() : Promise.reject(new Error("img"))).then((blob) => URL.createObjectURL(blob)).catch(() => "");
+        if (blobUrl) urls.push(blobUrl);
+      }
+      if (!urls.length) { setError("讀取這張圖片失敗"); return; }
+      setLightbox(urls);
+    })();
+  }
   function openRecord(record: HistoryRecord) {
     if (!record.imageUrl) return;
     void (async () => {
@@ -666,12 +680,13 @@ export default function OutfitPage() {
         </article>)}</div>}
       </section>
       </>}
+      {lightbox && <div role="dialog" aria-label="大圖" onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.72)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "center", padding: 24, overflow: "auto", cursor: "zoom-out" }}>{lightbox.map((u, i) => <img key={i} src={u} alt={`大圖 ${i + 1}`} style={{ maxWidth: lightbox.length > 1 ? "46vw" : "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 12, background: "repeating-conic-gradient(#e6e9e3 0 25%, #fff 0 50%) 0 0/20px 20px" }} />)}<button onClick={() => setLightbox(null)} aria-label="關閉" style={{ position: "fixed", right: 20, top: 16, width: 40, height: 40, borderRadius: 20, border: 0, background: "#fff", fontSize: 22, cursor: "pointer" }}>×</button></div>}
       {mode === "records" && <section className="history">
         <div className="section-head"><div className="preview-title"><span className="step">03</span><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
         {historyError && <div className="error">{historyError}</div>}
         {!records.length && !historyError ? <p className="empty-note">完成第一次生成後，紀錄會顯示在這裡。</p> : <div className="records">{records.map((record) => <article key={record.id} className="record">
-          {record.imageUrl ? <button className="thumb" onClick={() => openRecord(record)} aria-label="重新打開這次的結果"><AuthImage url={record.imageUrl} token={token} alt={record.description || "生成結果"} /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
+          {record.imageUrl ? <button className="thumb" onClick={() => zoomRecord(record)} aria-label="放大查看這次的結果"><AuthImage url={record.imageUrl} token={token} alt={record.description || "生成結果"} /></button> : <div className="thumb failed-thumb"><TriangleAlert size={22} /></div>}
           <div className="record-main"><div className="record-meta"><time>{formatTime(record.createdAt)}</time><span>{userLabel(record.userId)}</span><span>{record.model} · 最高品質</span>{record.status === "ok" && <span>{record.seconds} 秒 · 約 {formatUsd(record.usage.costUsd)}</span>}</div>
             <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
