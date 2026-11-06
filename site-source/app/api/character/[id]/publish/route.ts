@@ -34,5 +34,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (avatar.startsWith("data:image/png;base64,")) {
     avatarSaved = await saveAvatarSnapshot(request, who, avatar, `char:${id}`, name);
   }
-  return Response.json({ ok: true, name, avatarSaved });
+  // 管理者代同事發佈：直接幫他完成入座（企劃部／專案部同仁不用再回去走完「建立你的角色」）；後端還沒更新或對象不是這類同仁時略過
+  let seated = false;
+  if (canManageAll(who) && name !== who.name) {
+    const r = await designApi("characterSeatFor", { editorToken: editorTokenOf(request), name }).catch(() => null);
+    seated = Boolean(r?.ok && typeof r.seat === "number" && r.seat >= 0);
+  }
+  return Response.json({ ok: true, name, avatarSaved, seated });
 }
