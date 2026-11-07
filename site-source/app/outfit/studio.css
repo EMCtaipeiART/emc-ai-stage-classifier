@@ -204,33 +204,6 @@ html:has(.studio.embed){overflow:hidden}
 .studio .th-cta.pulse{animation:thPulse .7s ease-in-out infinite alternate}
 @keyframes thPulse{from{box-shadow:0 4px 0 rgba(0,0,0,.2),0 0 0 0 rgba(0,130,20,.5)}to{box-shadow:0 4px 0 rgba(0,0,0,.2),0 0 0 12px rgba(0,130,20,0)}}
 .studio .th-note{display:block;margin-top:14px;color:var(--muted);font-size:11px;line-height:1.6}
-.studio .th-stage{position:relative;width:100%;aspect-ratio:960/430;overflow:hidden;border-radius:18px;border:3px solid #8aa07c;background:#e9efe0;user-select:none}
-.studio .th-inner{position:absolute;left:0;top:0;transform-origin:0 0}
-.studio .th-bg{position:absolute;left:0;top:0;display:block}
-.studio .th-act{position:absolute;left:0;top:0;width:104px;height:104px;will-change:transform}
-.studio .th-sprite{display:block;width:104px;height:104px;padding:0;border:0;background-color:transparent;background-repeat:no-repeat;cursor:pointer}
-.studio .th-tag{position:absolute;left:50%;bottom:-6px;transform:translateX(-50%);font-size:calc(11px / var(--k,1));font-weight:700;color:#fff;background:rgba(38,45,39,.82);border-radius:6px;padding:1px 7px;white-space:nowrap;pointer-events:none}
-.studio .th-tag.me{background:var(--green)}
-.studio .th-ghost{opacity:0;transition:opacity .3s;pointer-events:none}
-.studio .th-ghost.on{opacity:1}
-.studio .th-sil{background:radial-gradient(circle at 50% 22%,#3b4a3a 0 17%,transparent 18%),linear-gradient(#3b4a3a,#3b4a3a) 50% 62%/38% 46% no-repeat;filter:opacity(.78);cursor:default;border-radius:0}
-.studio .th-hit{position:absolute;border:0;background:transparent;padding:0;cursor:pointer;z-index:900}
-.studio .th-deskglow{opacity:0;transition:opacity .3s}
-.studio .th-deskglow.on{opacity:1;animation:thGlow .8s ease-in-out infinite alternate}
-@keyframes thGlow{from{opacity:.35}to{opacity:1}}
-.studio .th-shake{animation:thShake .45s linear 2;transform-box:fill-box;transform-origin:center}
-@keyframes thShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
-.studio .th-steam{position:absolute;display:flex;gap:7px;pointer-events:none;z-index:901}
-.studio .th-steam i{width:7px;height:16px;border-radius:7px;background:rgba(255,255,255,.85);animation:thSteam 1.5s ease-out 3 both}
-.studio .th-steam i:nth-child(2){animation-delay:.25s}.studio .th-steam i:nth-child(3){animation-delay:.5s}
-@keyframes thSteam{0%{transform:translateY(8px) scaleY(.4);opacity:0}30%{opacity:.9}100%{transform:translateY(-26px) scaleY(1.2);opacity:0}}
-.studio .th-cat{position:absolute;left:0;top:402px;z-index:410;animation:thCat 22s linear infinite;pointer-events:none}
-@keyframes thCat{0%{transform:translateX(120px) scaleX(1)}46%{transform:translateX(640px) scaleX(1)}50%{transform:translateX(640px) scaleX(-1)}96%{transform:translateX(120px) scaleX(-1)}100%{transform:translateX(120px) scaleX(1)}}
-.studio .th-bubbles{position:absolute;inset:0;pointer-events:none;z-index:50}
-.studio .th-bubble{position:absolute;transform:translate(-50%,-100%);max-width:190px;text-align:center;background:#fff;color:#262d27;border:2px solid #262d27;border-radius:10px;padding:5px 10px;font-size:12px;font-weight:700;line-height:1.45;box-shadow:3px 3px 0 rgba(0,0,0,.16);animation:thPop .18s ease-out}
-.studio .th-bubble:after{content:'';position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);border:6px solid transparent;border-top-color:#262d27;border-bottom:0}
-@keyframes thPop{from{transform:translate(-50%,-90%) scale(.7);opacity:0}to{transform:translate(-50%,-100%) scale(1);opacity:1}}
-.studio .th-night{position:absolute;inset:0;background:rgba(18,28,60,.28);pointer-events:none;z-index:40}
 .studio .hub{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
 .studio .hub-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:16px 18px;color:var(--ink);transition:border-color .12s,transform .12s,box-shadow .12s}
 .studio .hub-card:hover{border-color:var(--green);transform:translateY(-2px)}
@@ -249,7 +222,10 @@ html:has(.studio.embed){overflow:hidden}
 .studio .admin-note{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink);border-radius:12px;padding:10px 13px;font-size:12px;line-height:1.7;margin-bottom:10px}
 .studio .back-home{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;margin-bottom:14px}
 @media (max-width:900px){.studio .th{grid-template-columns:1fr;padding:18px;gap:18px}.studio .th-stage{order:-1}.studio .hub{grid-template-columns:repeat(2,minmax(0,1fr))}.studio .coin-guide{grid-template-columns:1fr}}
-@media (prefers-reduced-motion:reduce){.studio .th-cat{animation:none;transform:translateX(300px)}}
 
-.studio .th-cine{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;transition:opacity .9s;pointer-events:none;background:#000}
+.studio .th-stage{position:relative;width:100%;aspect-ratio:960/430;overflow:hidden;border-radius:18px;border:3px solid #8aa07c;background:#0d1117 url(/office-poster.jpg) center/cover no-repeat}
+.studio .th-cine{position:absolute;inset:0;width:100%;height:100%;border:0;opacity:0;pointer-events:none;background:#000}
 .studio .th-cine.on{opacity:1}
+.studio .th-loading{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(255,255,255,.25);overflow:hidden}
+.studio .th-loading i{position:absolute;top:0;left:-40%;width:40%;height:100%;background:var(--green);animation:thLoad 1.4s ease-in-out infinite}
+@keyframes thLoad{from{left:-40%}to{left:100%}}
