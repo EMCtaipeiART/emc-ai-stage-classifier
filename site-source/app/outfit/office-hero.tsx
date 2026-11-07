@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261109";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261110";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");
