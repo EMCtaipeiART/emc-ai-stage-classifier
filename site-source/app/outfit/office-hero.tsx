@@ -14,6 +14,7 @@ export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // �
 const BUILTIN = (name: string) => `https://emc-art.com/pixel-plaza/sprites-hd/${encodeURIComponent(name)}.webp`;
 const cloudSrc = (name: string, v: number) => `/api/public/characters/${encodeURIComponent(name)}/atlas-hd.png?v=${v}`;
 
+const CINEMA_ORIGIN = "https://emc-art.com";
 const W = 960, H = 430, S = 104, SPEED = 150;
 const COL = { front: 0, right: 3, back: 6, left: 9 };
 type Face = keyof typeof COL;
@@ -46,6 +47,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   const [deskGlow, setDeskGlow] = useState(false);
   const [printerShake, setPrinterShake] = useState(false);
   const [steam, setSteam] = useState(0);
+  const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");   // 3D 辦公室劇場（嵌進來的 3D 辦公室）：載好就換掉下面的 2D 小劇場，載不起來就一直用 2D
   const bubbleId = useRef(0);
 
   const people: Person[] = useMemo(() => {
@@ -57,6 +59,26 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   }, [characters, myName]);
   const hasMine = Boolean(myName) && Boolean(characters) && (myName in (characters || {}) || DESIGN_FIRST.includes(myName)) && people.some((p) => p.name === myName);
 
+  const heroName = hasMine ? myName : "";
+  useEffect(() => {
+    if (!characters || cine !== "idle") return;
+    const weak = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+    let gl = false; try { const c = document.createElement("canvas"); gl = Boolean(c.getContext("webgl2") || c.getContext("webgl")); } catch { gl = false; }
+    if (window.innerWidth < 720 || weak || !gl || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("off"); return; }
+    const t = window.setTimeout(() => setCine("loading"), 600);
+    return () => window.clearTimeout(t);
+  }, [characters, cine]);
+  useEffect(() => {
+    if (cine !== "loading" && cine !== "ready") return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.origin !== CINEMA_ORIGIN || !e.data) return;
+      if (e.data.type === "cinemaReady") setCine("ready");
+      if (e.data.type === "cinemaCta") setCtaPulse(Boolean(e.data.on));
+    };
+    window.addEventListener("message", onMessage);
+    const giveUp = window.setTimeout(() => setCine((v) => (v === "loading" ? "off" : v)), 60000);   // 一分鐘還沒載好就放棄，繼續用 2D
+    return () => { window.removeEventListener("message", onMessage); window.clearTimeout(giveUp); };
+  }, [cine]);
   useEffect(() => { setClock(taipeiClock()); const t = window.setInterval(() => setClock(taipeiClock()), 30000); return () => window.clearInterval(t); }, []);
   useEffect(() => {
     const el = box.current; if (!el) return;
@@ -73,7 +95,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
 
   // 角色的位置、走動與朝向：直接改 DOM，不讓 React 每一格都重畫
   useEffect(() => {
-    if (!people.length) return;
+    if (!people.length || cine === "ready") return;
     const root = box.current; if (!root) return;
     const nodes = Array.from(root.querySelectorAll<HTMLDivElement>("[data-act]"));
     let other = 0;
@@ -104,11 +126,11 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [people, hasMine, myName]);
+  }, [people, hasMine, myName, cine]);
 
   // 導演：一幕接一幕地演（離開頁面就停）
   useEffect(() => {
-    if (!people.length) return;
+    if (!people.length || cine === "ready") return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     let alive = true;
     const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
@@ -166,7 +188,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       catch { /* 離開頁面 */ }
     })();
     return () => { alive = false; };
-  }, [people, hasMine]);
+  }, [people, hasMine, cine]);
 
   const poke = (i: number) => {
     const a = acts.current[i]; if (!a || a.ghost) return;
@@ -190,7 +212,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       <small className="th-note">{characters ? (working ? "現在是上班時間，同事們都在辦公室裡" : "現在是下班時間，辦公室裡剩下幾位加班的同事") : "辦公室載入中…"}</small>
     </div>
     <div className="th-stage" ref={box} style={{ ["--k" as string]: k }} role="group" aria-label="像素辦公室，可以點擊互動">
-      <div className="th-inner" style={{ width: W, height: H, transform: `scale(${k})` }}>
+      {cine === "ready" ? null : <div className="th-inner" style={{ width: W, height: H, transform: `scale(${k})` }}>
         <svg className="th-bg" viewBox={`0 0 ${W} ${H}`} width={W} height={H} shapeRendering="crispEdges" aria-hidden>
           <defs>
             <linearGradient id="thSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={sky[0]} /><stop offset="1" stopColor={sky[1]} /></linearGradient>
@@ -231,9 +253,10 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
           <span className={`th-tag${p.name === myName && hasMine ? " me" : ""}`}>{p.name === myName && hasMine ? `${p.name}（你）` : p.name}</span>
         </div>)}
         {!hasMine && people.length > 0 && <div className="th-act th-ghost" data-act="?"><div className="th-sprite th-sil" /><span className="th-tag me">新同事</span></div>}
-      </div>
-      <div className="th-bubbles" aria-live="polite">{bubbles.map((b) => <div key={b.id} className="th-bubble" style={{ left: Math.min(Math.max(b.x * k, 96), Math.max(96, (box.current?.clientWidth || 600) - 96)), top: Math.max(8, b.y * k) }}>{b.text}</div>)}</div>
-      {night && <div className="th-night" />}
+      </div>}
+      {(cine === "loading" || cine === "ready") && <iframe className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/index.html?embed=1&cinema=1&hero=${encodeURIComponent(heroName)}`} />}
+      <div className="th-bubbles" aria-live="polite">{cine !== "ready" && bubbles.map((b) => <div key={b.id} className="th-bubble" style={{ left: Math.min(Math.max(b.x * k, 96), Math.max(96, (box.current?.clientWidth || 600) - 96)), top: Math.max(8, b.y * k) }}>{b.text}</div>)}</div>
+      {night && cine !== "ready" && <div className="th-night" />}
     </div>
   </section>;
 }
