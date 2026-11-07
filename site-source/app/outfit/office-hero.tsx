@@ -254,7 +254,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
         </div>)}
         {!hasMine && people.length > 0 && <div className="th-act th-ghost" data-act="?"><div className="th-sprite th-sil" /><span className="th-tag me">新同事</span></div>}
       </div>}
-      {(cine === "loading" || cine === "ready") && <iframe className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/index.html?embed=1&cinema=1&v=20261108&hero=${encodeURIComponent(heroName)}`} />}
+      {(cine === "loading" || cine === "ready") && <iframe className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/index.html?embed=1&cinema=1&v=20261109&hero=${encodeURIComponent(heroName)}`} />}
       <div className="th-bubbles" aria-live="polite">{cine !== "ready" && bubbles.map((b) => <div key={b.id} className="th-bubble" style={{ left: Math.min(Math.max(b.x * k, 96), Math.max(96, (box.current?.clientWidth || 600) - 96)), top: Math.max(8, b.y * k) }}>{b.text}</div>)}</div>
       {night && cine !== "ready" && <div className="th-night" />}
     </div>
