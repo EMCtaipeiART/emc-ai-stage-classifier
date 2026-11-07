@@ -9,7 +9,7 @@ import { type PersonaState } from "./persona-wizard";
 import CharacterWorkshop from "./character-workshop";
 import CharacterAdmin from "./character-admin";
 import SeatPicker from "./seat-picker";
-import OfficeHero from "./office-hero";
+import OfficeTheater, { DESIGN_FIRST } from "./office-hero";
 import { analyzeOutfit, detectNecks, splitViews, type Check as QaCheck, type ViewBox } from "@/lib/outfit-check";
 import { BODY_REF_HEIGHT, chinOf, defaultHeadFit, HEAD_FEMALE, HEAD_K, HEAD_NAMES, HEAD_OVERLAP, HEADS, type HeadFit } from "@/lib/outfit-heads";
 import { formatTwd, formatUsd } from "@/lib/pricing";
@@ -564,8 +564,13 @@ export default function OutfitPage() {
   /** 新的一件：不帶製作單編號，扣 200 點。 */
   function startNew() { setFitOwner(""); setJob(null); setPhase("make"); setFitBody(null); void generate(); }
   const home = mode === "workshop" || mode === "seat" || mode === "records" || mode === "wallet";   // 首頁四個章節同一頁往下排；其餘（服裝拼接、頭像、帽子、眼鏡）是製作中的畫面
-  function go(id: string) {
-    if (!home) { setMode("workshop"); window.setTimeout(() => scrollStudioTo(id), 140); } else scrollStudioTo(id);
+  const [panel, setPanel] = useState<"make" | "seat" | "records" | "wallet">("make");
+  const [pub, setPub] = useState<{ characters: Record<string, number>; seats: Record<string, string> } | null>(null);   // 公開的已發佈角色與座位（開場小劇場、功能卡的狀態都用它）
+  useEffect(() => { fetch("/api/public/characters", { cache: "no-store" }).then((r) => r.json() as Promise<{ characters?: Record<string, number>; seats?: Record<string, string> }>).then((d) => setPub({ characters: d.characters || {}, seats: d.seats || {} })).catch(() => setPub({ characters: {}, seats: {} })); }, [workshopTick]);
+  function openPanel(which: "make" | "seat" | "records" | "wallet") {
+    if (!home) setMode("workshop");
+    setPanel(which);
+    window.setTimeout(() => scrollStudioTo("hub-panel"), 140);
   }
   const regenCost = wallet?.spendPerRegeneration ?? 50;
   const canRegenerate = Boolean(job && job.status === "draft" && wallet && (!wallet.designer || wallet.balance >= regenCost));
@@ -588,23 +593,25 @@ export default function OutfitPage() {
   return <div className={"studio" + (embed ? " embed" : "")} data-theme={theme}>
     <header><a className="brand" href="/outfit"><span className="mark"><Shirt size={23} /></span><span>PIXEL OFFICE<small>OUTFIT STUDIO</small></span></a><div className="head-right"><span className="private-dot">團隊工具</span><a className="studio-link" href="/">階段判定器 <ArrowUpRight size={14} /></a><a className="studio-link" href="/api/logout"><LogOut size={14} />登出</a></div></header>
     <main>
-      {home && <OfficeHero myName={wallet?.name || ""} onStart={() => go("sec-make")} />}
-      {!home && !(showWizard && wizardView && persona) && <button type="button" className="back-home" onClick={() => go("sec-make")}><ArrowLeft size={14} />回到角色首頁</button>}
+      {home && <OfficeTheater myName={wallet?.name || ""} characters={pub ? pub.characters : null} onStart={() => openPanel("make")} />}
+      {!home && !(showWizard && wizardView && persona) && <button type="button" className="back-home" onClick={() => openPanel("make")}><ArrowLeft size={14} />回到角色首頁</button>}
       {showWizard && wizardView && persona ? <div id="sec-make"><CharacterWorkshop token={token} departmentLabel={personaDept || "你的部門"} canAll={canAll} onPublished={() => { setPersona({ ...persona, completed: true, step: "done" }); }}/></div> : <>
       {showWizard && persona && <div className="persona-banner"><span>你正在建立角色：頭像對位 → 身體拼接，兩項都按「完成」後這個流程就結束，頭像框會自動更新。</span><span className="persona-banner-actions">{mode === "outfit" && persona.headItemId && <button onClick={() => { setPersonaHeadOpen(persona.headItemId); setMode("head"); }}>回頭像對位</button>}<button onClick={() => { setWizardView(true); setPersonaHeadOpen(""); }}>返回建立角色步驟</button></span></div>}
-      <nav className="home-nav" aria-label="頁面導覽">{([["sec-make", "我的角色", <UserRound key="a" size={15} />], ["sec-seat", "座位", <Crown key="b" size={15} />], ["sec-records", "製作紀錄", <Shirt key="c" size={15} />], ["sec-wallet", "平台幣", <Coins key="d" size={15} />]] as Array<[string, string, ReactElement]>).map(([id, label, icon]) => <button key={id} type="button" onClick={() => go(id)}>{icon}{label}</button>)}{wallet?.designer && <button type="button" className="coin-chip" onClick={() => go("sec-wallet")} title="我的平台幣">🪙 {fmtCoin(wallet.balance)} 點</button>}</nav>
+      {home && <div className="hub" role="tablist" aria-label="功能">{([
+        ["make", <UserRound key="a" size={19} />, "我的角色", "上傳照片，做出你在多元宇宙裡的分身；也可以新增、切換造型。", Boolean(wallet?.name && pub && (wallet.name in pub.characters || DESIGN_FIRST.includes(wallet.name))) ? "已經在辦公室了" : "還沒有角色，從這裡開始"],
+        ["seat", <Crown key="b" size={19} />, "我的座位", "選一個固定座位，上班時同事就會看到你坐在那裡。", wallet?.name && pub?.seats?.[wallet.name] ? "已指定固定座位" : "目前自由走動"],
+        ["records", <Shirt key="c" size={19} />, "製作紀錄", "每次 AI 生成的圖片與結果都留在這裡，可以回頭查看。", `共 ${totals.runs} 次生成`],
+        ["wallet", <Coins key="d" size={19} />, "平台幣", "做角色、生成服裝用的點數；完成案件賺，也能轉給同事。", wallet?.designer ? `目前 ${fmtCoin(wallet.balance)} 點` : "尚未有平台幣帳戶"],
+      ] as Array<["make" | "seat" | "records" | "wallet", ReactElement, string, string, string]>).map(([key, icon, title, desc, stat]) => <button key={key} type="button" role="tab" aria-selected={panel === key} className={`hub-card${panel === key ? " on" : ""}`} onClick={() => openPanel(key)}><span className="hub-ic">{icon}</span><b>{title}</b><p>{desc}</p><span className="hub-stat">{stat}</span></button>)}</div>}
       {home ? <>
-        <div id="sec-make" className="home-sec">
-          <div className="home-sec-head"><span className="step">1</span><div><h2>我的角色</h2><p>在這裡做出你在多元宇宙裡的分身：上傳照片 → AI 生成 → 確認後上線，同事就會在辦公室看到你。第一個角色免費，之後每多做一個要 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 平台幣。</p></div></div>
-          {wallet?.designer && <div className="wallet home-wallet-card"><div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">第 1 個角色免費<br />之後每多做一個角色 {fmtCoin(wallet.spendPerGeneration)} 點<br />完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div></div>}
+        {panel === "make" && <div id="hub-panel" className="hub-panel">
+          <p className="history-total" style={{ marginTop: 0 }}>第一個角色免費，之後每多做一個要 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 平台幣；完成案件的積分 1 點 = 1 平台幣。</p>
           <CharacterWorkshop onNew={() => { setWorkshopOpen("new"); scrollStudioTop(); }} key={workshopOpen || "mine"} token={token} departmentLabel="設計部、企劃部、專案部" canAll={canAll} openId={workshopOpen} onPublished={() => setWorkshopTick((n) => n + 1)} />
-          {canAll && <div className="admin-note" style={{ marginTop: 18 }}><span>🛠</span><span><b>管理者專區：</b>下面是「全部人員」的角色製作單，可以開啟重新編輯、代為發佈、改發佈給別人、取消上線或刪除。一般同仁只會看到自己的角色清單。</span></div>}
+          {canAll && <div className="admin-note" style={{ marginTop: 18 }}><b>管理者專區：</b>下面是「全部人員」的角色製作單，可以開啟重新編輯、代為發佈、改發佈給別人、取消上線或刪除。一般同仁只會看到自己的角色清單。</div>}
           <CharacterAdmin canAll={canAll} token={token} refreshKey={workshopTick} onOpen={(id) => { setWorkshopOpen(id); scrollStudioTop(); }} />
-        </div>
-        <div id="sec-seat" className="home-sec">
-          <div className="home-sec-head"><span className="step">2</span><div><h2>我的座位</h2><p>選一個你在辦公室的位置，上班時大家就會看到你坐在那裡。{canAll ? "管理者可以幫同事指定座位。" : ""}</p></div></div>
-          <SeatPicker token={token} canAll={canAll} />
-        </div>
+        </div>}
+        {panel === "seat" && <div id="hub-panel" className="hub-panel"><SeatPicker token={token} canAll={canAll} /></div>}
+      
       </> : mode !== "outfit" ? <HeadStudio key={mode + personaHeadOpen} kind={mode} token={token} wallet={wallet} reloadWallet={() => void loadWallet()} autoOpenId={mode === "head" ? personaHeadOpen : ""} onSaved={(id) => { setHeadReload((n) => n + 1); if (showWizard && persona && id === persona.headItemId) void openOutfitById(persona.outfitItemId); else if (returnOutfitId) { const back = returnOutfitId; setReturnOutfitId(""); void openOutfitById(back); } }} /> : <>
       <div className="workspace">
         <section className="control">
@@ -699,7 +706,7 @@ export default function OutfitPage() {
       </section>
       </>}
       {lightbox && <div role="dialog" aria-label="大圖" onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.72)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "center", padding: 24, overflow: "auto", cursor: "zoom-out" }}>{lightbox.map((u, i) => <img key={i} src={u} alt={`大圖 ${i + 1}`} style={{ maxWidth: lightbox.length > 1 ? "46vw" : "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 12, background: "repeating-conic-gradient(#e6e9e3 0 25%, #fff 0 50%) 0 0/20px 20px" }} />)}<button onClick={() => setLightbox(null)} aria-label="關閉" style={{ position: "fixed", right: 20, top: 16, width: 40, height: 40, borderRadius: 20, border: 0, background: "#fff", fontSize: 22, cursor: "pointer" }}>×</button></div>}
-      {home && <div id="sec-records" className="home-sec"><div className="home-sec-head"><span className="step">3</span><div><h2>製作紀錄</h2><p>每次 AI 生成（成功或失敗）都會留下紀錄與圖片，需要時可以回頭查。</p></div></div><section className="history">
+      {home && panel === "records" && <div id="hub-panel" className="hub-panel"><section className="history">
         <div className="section-head"><div className="preview-title"><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
         {historyError && <div className="error">{historyError}</div>}
@@ -712,8 +719,8 @@ export default function OutfitPage() {
           {canAll && <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>{record.itemId && /^\[角色工坊/.test(record.description) && <button className="open-btn" onClick={() => { setWorkshopOpen(record.itemId || ""); setMode("workshop"); scrollStudioTop(); }}>重新打開</button>}<button className="open-btn" style={{ color: "#c0392b" }} onClick={() => void removeRecord(record)}>刪除</button></span>}
         </article>)}</div>}
       </section></div>}
-      {home && <div id="sec-wallet" className="home-sec"><div className="home-sec-head"><span className="step">4</span><div><h2>平台幣</h2><p>平台幣是這個系統裡的「做角色與服裝的點數」：賺來、花掉、也可以轉給同事。</p></div></div>
-        <div className="coin-guide"><div><b>🪙 怎麼賺</b><p>設計師完成案件，積分 1 點 = 1 平台幣。企劃部、專案部同仁可以由同事轉讓取得。</p></div><div><b>✨ 可以花在哪</b><p>多做一個角色 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 點（第 1 個免費）；AI 服裝生成一次 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 點（一次三組），不滿意再生成 {fmtCoin(wallet?.spendPerRegeneration ?? 50)} 點。失敗會自動退回。</p></div><div><b>🎁 可以轉給同事</b><p>點數夠的人就能做角色、生成服裝，不分部門。也可以把點數轉給想玩的同事，立即入帳。</p></div></div>
+      {home && panel === "wallet" && <div id="hub-panel" className="hub-panel">
+        <div className="coin-guide"><div><b>怎麼賺</b><p>設計師完成案件，積分 1 點 = 1 平台幣。企劃部、專案部同仁可以由同事轉讓取得。</p></div><div><b>可以花在哪</b><p>多做一個角色 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 點（第 1 個免費）；AI 服裝生成一次 {fmtCoin(wallet?.spendPerGeneration ?? 100)} 點（一次三組），不滿意再生成 {fmtCoin(wallet?.spendPerRegeneration ?? 50)} 點。失敗會自動退回。</p></div><div><b>可以轉給同事</b><p>點數夠的人就能做角色、生成服裝，不分部門。也可以把點數轉給想玩的同事，立即入帳。</p></div></div>
       {(wallet?.designer ? <section className="history">
         <div className="section-head"><div className="preview-title"><h2>我的餘額與明細</h2></div><button className="refresh" onClick={() => void loadWallet()}>重新整理</button></div>
         <div className="wallet" style={{ marginBottom: 14 }}><div className="wallet-top"><div><span className="wallet-label">{wallet.name} 的平台幣</span><b className="wallet-balance">{fmtCoin(wallet.balance)}<small> 點</small></b></div><div className="wallet-rule">完成案件積分 1 點 = 1 點（{wallet.startDate} 起）</div></div></div>

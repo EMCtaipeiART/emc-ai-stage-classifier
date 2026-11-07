@@ -228,7 +228,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
 
     {stage === "upload" && <div className="workspace" style={{ gridTemplateColumns: "1fr", marginTop: 14 }}>
       <section className="control">
-        <div className="section-head"><span className="step">01</span><h2>{job ? "重新生成三視圖" : "上傳照片，生成角色"}</h2></div>
+        <div className="section-head"><h2>{job ? "重新生成三視圖" : "上傳照片，生成角色"}</h2></div>
         <div className="field-label">個人照片 <span>必填 · 1 張</span></div>
         <button className="drop" onClick={() => input.current?.click()} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "拖曳或點擊上傳個人照"}</strong><span>清楚的正面或半身照最準</span><small>PNG / JPG / WebP · 10 MB 以內</small></button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f && f.size <= 10 * 1024 * 1024) setFile(f); e.target.value = ""; }} />
@@ -241,9 +241,9 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
         <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在下方「製作紀錄」。</small>
       </section>
       <section className="preview">
-        <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>製作流程</h2></div></div>
-        <div className="guidance"><div><span>01 / VIEWS</span><b>三視圖＋自動對位</b><p>AI 先畫正面、側面、背面，系統自動量頭頂與腳底並對齊，你只要確認。</p></div><div><span>02 / ANGLES</span><b>一次補齊其餘角度</b><p>確認後用一張圖補齊其他 8 個角度，不滿意的角度可以單獨重算。</p></div></div>
-        <div className="guidance"><div><span>03 / PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>04 / SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到下方「我的座位」設定。</p></div></div>
+        <div className="section-head"><div className="preview-title"><h2>製作流程</h2></div></div>
+        <div className="guidance"><div><span>VIEWS</span><b>三視圖＋自動對位</b><p>AI 先畫正面、側面、背面，系統自動量頭頂與腳底並對齊，你只要確認。</p></div><div><span>ANGLES</span><b>一次補齊其餘角度</b><p>確認後用一張圖補齊其他 8 個角度，不滿意的角度可以單獨重算。</p></div></div>
+        <div className="guidance"><div><span>PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到下方「我的座位」設定。</p></div></div>
       </section>
     </div>}
 

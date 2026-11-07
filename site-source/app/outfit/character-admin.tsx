@@ -50,7 +50,7 @@ export default function CharacterAdmin({ token, onOpen, refreshKey, canAll = fal
   }
 
   return <section className="history" style={{ marginTop: 18 }}>
-    <div className="section-head"><div className="preview-title"><span className="step">🧍</span><h2>{canAll ? "角色製作單管理" : "我已做好的角色"}</h2></div><span style={{ display: "flex", gap: 8 }}><button className="open-btn" onClick={() => onOpen("new")}>＋ 新增一套角色</button><button className="refresh" onClick={() => void load()}>重新整理</button></span></div>
+    <div className="section-head"><div className="preview-title"><h2>{canAll ? "角色製作單管理" : "我已做好的角色"}</h2></div><span style={{ display: "flex", gap: 8 }}><button className="open-btn" onClick={() => onOpen("new")}>＋ 新增一套角色</button><button className="refresh" onClick={() => void load()}>重新整理</button></span></div>
     <p className="history-total">{canAll ? "全部人員的角色製作單。「開啟／編輯」可回到三視圖對位、補其餘角度重新修改。" : "每做完一套都會留在這裡，隨時指定哪一套是 3D 辦公室裡的預設角色。"}</p>
     {error && <div className="error">{error}</div>}
     {!jobs.length ? <p className="empty-note">還沒有角色。按右上角「新增一套角色」上傳照片開始製作。</p> : <div className="library">{jobs.map((job) => <article key={job.id} className="lib-card">
