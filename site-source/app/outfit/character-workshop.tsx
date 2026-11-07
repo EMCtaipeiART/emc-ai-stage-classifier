@@ -238,12 +238,12 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
         <div className="prompt-foot"><span>帽子與眼鏡會直接畫在角色身上，不另外做配件。</span><span>{notes.length}/300</span></div>
         <div className="rules" style={{ marginTop: 18 }}><Check size={15} /><span>已套用固定規範：三視圖（正面、右側、背面）、透明背景</span></div>
         <button className="generate" onClick={() => void generate()} disabled={Boolean(busy) || !file} style={{ marginTop: 18 }}>{busy ? <><LoaderCircle size={19} className="spin" /><span>{busy}…{elapsed} 秒（約 1～3 分鐘）</span></> : <><Sparkles size={19} /><span>{job ? "重新生成三視圖" : "生成三視圖"}</span></>}</button>
-        <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在「生成紀錄」。</small>
+        <small className="cost">使用 OpenAI 圖片模型生成，會產生 API 費用；每次生成都會記錄在下方「製作紀錄」。</small>
       </section>
       <section className="preview">
         <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>製作流程</h2></div></div>
         <div className="guidance"><div><span>01 / VIEWS</span><b>三視圖＋自動對位</b><p>AI 先畫正面、側面、背面，系統自動量頭頂與腳底並對齊，你只要確認。</p></div><div><span>02 / ANGLES</span><b>一次補齊其餘角度</b><p>確認後用一張圖補齊其他 8 個角度，不滿意的角度可以單獨重算。</p></div></div>
-        <div className="guidance"><div><span>03 / PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>04 / SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到「座位」分頁設定。</p></div></div>
+        <div className="guidance"><div><span>03 / PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>04 / SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到下方「我的座位」設定。</p></div></div>
       </section>
     </div>}
 
@@ -289,7 +289,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
 
     {stage === "done" && <div className="preview" style={{ marginTop: 14 }}>
       <div className="section-head"><div className="preview-title"><span className="step"><Check size={14} /></span><h2>{job?.publishedAs ? `已上線 · 預設中（${job.publishedAs}）` : "這套已完成"}</h2></div></div>
-      <p className="preview-bottom"><span>重新整理 3D 辦公室（約 1 分鐘內）就會看到新角色，首頁頭像框也會更新。要固定坐在某個位置，請到「座位」分頁；不選就在辦公室自由走動。</span></p>
+      <p className="preview-bottom"><span>重新整理 3D 辦公室（約 1 分鐘內）就會看到新角色，首頁頭像框也會更新。要固定坐在某個位置，請到頁面下方「我的座位」；不選就在辦公室自由走動。</span></p>
       <div className="job-actions">
         {job && !job.publishedAs && <button className="generate" style={{ width: "auto", padding: "12px 20px" }} onClick={() => void makeMyDefault()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : <Check size={17} />}<span>把這套設為預設角色</span></button>}
         <button className="open-btn" onClick={() => onNew?.()}>＋ 再新增一套角色</button>

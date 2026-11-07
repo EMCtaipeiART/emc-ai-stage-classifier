@@ -51,7 +51,7 @@ export default function SeatPicker({ token, canAll, defaultName = "" }: { token:
   const view = floor === 5 ? view5 : view4;
 
   return <section className="preview">
-    <div className="section-head"><div className="preview-title"><span className="step">02</span><h2>座位圖</h2></div></div>
+    <div className="section-head"><div className="preview-title"><span className="step">💺</span><h2>座位圖</h2></div></div>
     <p className="history-total">點一個綠色的位置，角色上線後就固定坐在那裡；不選就在辦公室自由走動，之後隨時可以回來改。會議室、茶水間不能當座位。</p>
     {error && <div className="error" role="alert">{error}</div>}
     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "8px 0" }}>
