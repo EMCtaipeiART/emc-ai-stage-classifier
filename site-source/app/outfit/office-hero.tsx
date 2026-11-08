@@ -9,12 +9,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261116";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261117";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");
   const [ctaPulse, setCtaPulse] = useState(false);
-  const [muted, setMuted] = useState(true);
+  const [muted, setMuted] = useState(false);   // 預設有聲；瀏覽器擋下來時影片頁會回報 cinemaMuted
   const frame = useRef<HTMLIFrameElement>(null);
   const hasMine = useMemo(() => Boolean(myName) && Boolean(characters) && (myName in (characters || {}) || DESIGN_FIRST.includes(myName)), [myName, characters]);
 
@@ -25,6 +25,12 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
     if (weak || !gl || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("off"); return; }
     setCine("loading");
   }, [characters, cine]);
+  useEffect(() => {   // 被瀏覽器擋成靜音時，使用者在頁面上第一次點擊就順便打開聲音
+    if (cine !== "ready" || !muted) return;
+    const on = () => { setMuted(false); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: false }, CINEMA_ORIGIN); };
+    window.addEventListener("pointerdown", on, { once: true });
+    return () => window.removeEventListener("pointerdown", on);
+  }, [cine, muted]);
   useEffect(() => {
     if (cine !== "loading" && cine !== "ready") return;
     const onMessage = (e: MessageEvent) => {
