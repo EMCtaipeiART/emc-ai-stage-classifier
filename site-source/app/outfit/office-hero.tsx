@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261120";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261122";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "tap" | "loading" | "ready" | "off">("idle");
@@ -17,6 +17,29 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   const [ended, setEnded] = useState(false);
   const [muted, setMuted] = useState(false);   // 預設有聲；瀏覽器擋下來時影片頁會回報 cinemaMuted
   const frame = useRef<HTMLIFrameElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  const pseudoFull = useRef(false);
+  // 全螢幕：先用瀏覽器的全螢幕（Android／電腦）；iPhone 不支援就請外層主站把這個頁面撐滿整個視窗（假全螢幕）
+  const enterFull = () => {
+    const el = stage.current as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null; if (!el) return;
+    const pseudo = () => { pseudoFull.current = true; setFull(true); window.parent.postMessage({ type: "emcOutfitFullscreen", on: true }, "*"); };
+    try {
+      if (el.requestFullscreen) el.requestFullscreen().then(() => { setFull(true); try { void (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.("landscape")?.catch(() => {}); } catch { /* 部分瀏覽器不能鎖方向 */ } }).catch(pseudo);
+      else if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); setFull(true); }
+      else pseudo();
+    } catch { pseudo(); }
+  };
+  const exitFull = () => {
+    if (document.fullscreenElement) void document.exitFullscreen?.();
+    if (pseudoFull.current) { pseudoFull.current = false; window.parent.postMessage({ type: "emcOutfitFullscreen", on: false }, "*"); }
+    setFull(false);
+  };
+  useEffect(() => {
+    const h = () => { if (!document.fullscreenElement && !pseudoFull.current) setFull(false); };
+    document.addEventListener("fullscreenchange", h);
+    return () => document.removeEventListener("fullscreenchange", h);
+  }, []);
   const hasMine = useMemo(() => Boolean(myName) && Boolean(characters) && (myName in (characters || {}) || DESIGN_FIRST.includes(myName)), [myName, characters]);
 
   useEffect(() => {
@@ -55,14 +78,17 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       <button type="button" className={`th-cta${ctaPulse ? " pulse" : ""}`} onClick={onStart}>{hasMine ? "換一個新造型" : "做我的角色，入座"}<span aria-hidden>→</span></button>
       <small className="th-note">{cine === "tap" ? "點畫面上的播放鈕，看設計部的小短劇" : cine === "loading" ? "辦公室劇場載入中，稍等幾秒就開演" : cine === "ready" ? "正在上映：《最後一版》" : "設計部的日常，等你加入"}</small>
     </div>
-    <div className="th-stage" role="group" aria-label="辦公室劇場" style={cine === "ready" ? { cursor: "pointer" } : undefined} onClick={(e) => { if (cine !== "ready" || (e.target as HTMLElement).closest(".th-ctls")) return; frame.current?.contentWindow?.postMessage({ type: "cinemaToggle" }, CINEMA_ORIGIN); }}>   {/* 點畫面暫停／繼續 */}
-      {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/cinema-video.html?embed=1&v=${CINEMA_VERSION}`} allow="autoplay" />}
+    <div ref={stage} className={`th-stage${full ? " is-full" : ""}`} role="group" aria-label="辦公室劇場" style={cine === "ready" ? { cursor: "pointer" } : undefined} onClick={(e) => { if (cine !== "ready" || (e.target as HTMLElement).closest(".th-ctls")) return; frame.current?.contentWindow?.postMessage({ type: "cinemaToggle" }, CINEMA_ORIGIN); }}>   {/* 點畫面暫停／繼續 */}
+      {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/cinema-video.html?embed=1&v=${CINEMA_VERSION}`} allow="autoplay; fullscreen" />}
+      {full && <button type="button" className="th-exit" onClick={exitFull}>✕ 退出全螢幕</button>}
       {cine === "ready" && <div className="th-ctls">
+        <button type="button" className="th-skip" onClick={() => (full ? exitFull() : enterFull())}>{full ? "縮小" : "全螢幕"}</button>
         <button type="button" className="th-skip" onClick={() => { const next = !muted; setMuted(next); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: next }, CINEMA_ORIGIN); }}>{muted ? "開聲音" : "關聲音"}</button>
+        <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaPrev" }, CINEMA_ORIGIN)}><span aria-hidden>◂◂ </span>上一句</button>
         {ended ? <button type="button" className="th-skip" onClick={() => { setEnded(false); frame.current?.contentWindow?.postMessage({ type: "cinemaReplay" }, CINEMA_ORIGIN); }}>再看一次</button>
           : <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaSkip" }, CINEMA_ORIGIN)}>下一句<span aria-hidden> ▸▸</span></button>}
       </div>}
-      {cine === "tap" && <button type="button" className="th-play" onClick={() => setCine("loading")} aria-label="播放辦公室小短劇"><svg viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg><span>點一下播放</span></button>}
+      {cine === "tap" && <button type="button" className="th-play" onClick={() => { setCine("loading"); enterFull(); }} aria-label="播放辦公室小短劇（全螢幕）"><svg viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg><span>點一下全螢幕播放</span></button>}
       {cine === "loading" && <span className="th-loading" aria-hidden><i /></span>}
     </div>
   </section>;
