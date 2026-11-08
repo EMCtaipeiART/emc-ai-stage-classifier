@@ -21,7 +21,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
     if (!characters || cine !== "idle") return;
     const weak = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
     let gl = false; try { const c = document.createElement("canvas"); gl = Boolean(c.getContext("webgl2") || c.getContext("webgl")); } catch { gl = false; }
-    if (window.innerWidth < 720 || weak || !gl || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("off"); return; }
+    if (weak || !gl || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("off"); return; }
     setCine("loading");
   }, [characters, cine]);
   useEffect(() => {
