@@ -9,11 +9,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261117";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261118";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");
   const [ctaPulse, setCtaPulse] = useState(false);
+  const [ended, setEnded] = useState(false);
   const [muted, setMuted] = useState(false);   // 預設有聲；瀏覽器擋下來時影片頁會回報 cinemaMuted
   const frame = useRef<HTMLIFrameElement>(null);
   const hasMine = useMemo(() => Boolean(myName) && Boolean(characters) && (myName in (characters || {}) || DESIGN_FIRST.includes(myName)), [myName, characters]);
@@ -27,7 +28,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   }, [characters, cine]);
   useEffect(() => {   // 被瀏覽器擋成靜音時，使用者在頁面上第一次點擊就順便打開聲音
     if (cine !== "ready" || !muted) return;
-    const on = () => { setMuted(false); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: false }, CINEMA_ORIGIN); };
+    const on = (ev: Event) => { if ((ev.target as HTMLElement | null)?.closest?.(".th-ctls")) return; setMuted(false); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: false }, CINEMA_ORIGIN); };
     window.addEventListener("pointerdown", on, { once: true });
     return () => window.removeEventListener("pointerdown", on);
   }, [cine, muted]);
@@ -37,6 +38,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       if (e.origin !== CINEMA_ORIGIN || !e.data) return;
       if (e.data.type === "cinemaReady") setCine("ready");
       if (e.data.type === "cinemaCta") setCtaPulse(Boolean(e.data.on));
+      if (e.data.type === "cinemaEnded") setEnded(Boolean(e.data.on));
       if (e.data.type === "cinemaMuted") setMuted(Boolean(e.data.muted));   // 瀏覽器不讓有聲播放時，影片頁會回報「仍是靜音」
     };
     window.addEventListener("message", onMessage);
@@ -56,7 +58,8 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/cinema-video.html?embed=1&v=${CINEMA_VERSION}`} allow="autoplay" />}
       {cine === "ready" && <div className="th-ctls">
         <button type="button" className="th-skip" onClick={() => { const next = !muted; setMuted(next); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: next }, CINEMA_ORIGIN); }}>{muted ? "開聲音" : "關聲音"}</button>
-        <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaSkip" }, CINEMA_ORIGIN)}>下一句<span aria-hidden> ▸▸</span></button>
+        {ended ? <button type="button" className="th-skip" onClick={() => { setEnded(false); frame.current?.contentWindow?.postMessage({ type: "cinemaReplay" }, CINEMA_ORIGIN); }}>再看一次</button>
+          : <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaSkip" }, CINEMA_ORIGIN)}>下一句<span aria-hidden> ▸▸</span></button>}
       </div>}
       {cine === "loading" && <span className="th-loading" aria-hidden><i /></span>}
     </div>
