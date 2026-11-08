@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * 服裝頁開場：左邊是一句話說明＋大按鈕，右邊是「辦公室劇場」——嵌進來的 3D 辦公室（pixel-plaza ?cinema=1），
@@ -9,11 +9,12 @@ import { useEffect, useMemo, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261110";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261112";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");
   const [ctaPulse, setCtaPulse] = useState(false);
+  const frame = useRef<HTMLIFrameElement>(null);
   const hasMine = useMemo(() => Boolean(myName) && Boolean(characters) && (myName in (characters || {}) || DESIGN_FIRST.includes(myName)), [myName, characters]);
   const heroName = hasMine ? myName : "";
 
@@ -45,7 +46,8 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       <small className="th-note">{cine === "loading" ? "辦公室劇場載入中，稍等幾秒就開演" : cine === "ready" ? "正在上映：《最後一版》" : "設計部的日常，等你加入"}</small>
     </div>
     <div className="th-stage" role="group" aria-label="辦公室劇場">
-      {(cine === "loading" || cine === "ready") && <iframe className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/index.html?embed=1&cinema=1&v=${CINEMA_VERSION}&hero=${encodeURIComponent(heroName)}`} />}
+      {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/index.html?embed=1&cinema=1&v=${CINEMA_VERSION}&hero=${encodeURIComponent(heroName)}`} />}
+      {cine === "ready" && <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaSkip" }, CINEMA_ORIGIN)}>下一句<span aria-hidden> ▸▸</span></button>}
       {cine === "loading" && <span className="th-loading" aria-hidden><i /></span>}
     </div>
   </section>;
