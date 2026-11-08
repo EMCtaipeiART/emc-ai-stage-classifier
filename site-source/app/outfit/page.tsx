@@ -345,6 +345,7 @@ export default function OutfitPage() {
       }
       if (!urls.length) { setError("讀取這張圖片失敗"); return; }
       setLightbox(urls);
+      scrollStudioTop();   // 內嵌時 iframe 和內容一樣高，要請外層捲到頂端才看得到放大圖
     })();
   }
   function openRecord(record: HistoryRecord) {
@@ -705,7 +706,7 @@ export default function OutfitPage() {
         </article>)}</div>}
       </section>
       </>}
-      {lightbox && <div role="dialog" aria-label="大圖" onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.72)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "center", padding: 24, overflow: "auto", cursor: "zoom-out" }}>{lightbox.map((u, i) => <img key={i} src={u} alt={`大圖 ${i + 1}`} style={{ maxWidth: lightbox.length > 1 ? "46vw" : "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 12, background: "repeating-conic-gradient(#e6e9e3 0 25%, #fff 0 50%) 0 0/20px 20px" }} />)}<button onClick={() => setLightbox(null)} aria-label="關閉" style={{ position: "fixed", right: 20, top: 16, width: 40, height: 40, borderRadius: 20, border: 0, background: "#fff", fontSize: 22, cursor: "pointer" }}>×</button></div>}
+      {lightbox && <div role="dialog" aria-label="大圖" onClick={() => setLightbox(null)} style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(0,0,0,.72)", display: "flex", flexWrap: "wrap", gap: 12, alignItems: typeof window !== "undefined" && window.parent !== window ? "flex-start" : "center", alignContent: typeof window !== "undefined" && window.parent !== window ? "flex-start" : "center", justifyContent: "center", padding: 24, overflow: "auto", cursor: "zoom-out" }}>{lightbox.map((u, i) => <img key={i} src={u} alt={`大圖 ${i + 1}`} style={{ maxWidth: lightbox.length > 1 ? "46vw" : "92vw", maxHeight: "88vh", objectFit: "contain", borderRadius: 12, background: "repeating-conic-gradient(#e6e9e3 0 25%, #fff 0 50%) 0 0/20px 20px" }} />)}<button onClick={() => setLightbox(null)} aria-label="關閉" style={{ position: "fixed", right: 20, top: 16, width: 40, height: 40, borderRadius: 20, border: 0, background: "#fff", fontSize: 22, cursor: "pointer" }}>×</button></div>}
       {home && panel === "records" && <div id="hub-panel" className="hub-panel"><section className="history">
         <div className="section-head"><div className="preview-title"><h2>生成紀錄</h2></div><button className="refresh" onClick={() => void loadHistory()}>重新整理</button></div>
         <p className="history-total">共 <b>{totals.runs}</b> 次（成功 {totals.ok} 次）· 累計 {totals.tokens.toLocaleString()} tokens · 約 <b>{formatUsd(totals.costUsd)}</b>（{formatTwd(totals.costUsd)}）· 每次生成（成功與失敗）都會記錄並保存圖片</p>
@@ -716,7 +717,7 @@ export default function OutfitPage() {
             <strong>{record.description || (record.described ? `（照片）${record.described}` : "（參考照片）")}</strong>
             {record.status === "failed" && <p className="record-error">失敗：{record.error}</p>}
             {record.described && record.description && <small>AI 讀到的衣服：{record.described}</small>}</div>
-          {canAll && <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>{record.itemId && /^\[角色工坊/.test(record.description) && <button className="open-btn" onClick={() => { setWorkshopOpen(record.itemId || ""); setMode("workshop"); scrollStudioTop(); }}>重新打開</button>}<button className="open-btn" style={{ color: "#c0392b" }} onClick={() => void removeRecord(record)}>刪除</button></span>}
+          {canAll && <span style={{ display: "flex", flexDirection: "column", gap: 6 }}>{record.itemId && /^\[角色工坊/.test(record.description) && <button className="open-btn" onClick={() => { setWorkshopOpen(record.itemId || ""); setMode("workshop"); setPanel("make"); window.setTimeout(() => scrollStudioTo("hub-panel"), 140); }}>重新打開</button>}<button className="open-btn" style={{ color: "#c0392b" }} onClick={() => void removeRecord(record)}>刪除</button></span>}
         </article>)}</div>}
       </section></div>}
       {home && panel === "wallet" && <div id="hub-panel" className="hub-panel">
