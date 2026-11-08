@@ -27,6 +27,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   await putAsset(`charpub/${name}/atlas.png`, small, "image/png");
   await putAsset(`charpub/${name}/atlas-hd.png`, big, "image/png");
   await setPublished(name, id, job.account);
+  await notifyWalkFrames();   // 通知 GitHub 開始替這位補走路／跑步影格（沒設定 token 就略過，30 分鐘排程仍會撿到）
   await updateJob(id, { status: "published" });
   await env.DB!.prepare("UPDATE character_jobs SET publish_name = ? WHERE id = ?").bind(name, id).run();
   if (job.account === who.account && name === who.name) await upsertPersona(job.account, name, { step: "done", complete: true }).catch(() => undefined);
@@ -41,4 +42,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     seated = Boolean(r?.ok && typeof r.seat === "number" && r.seat >= 0);
   }
   return Response.json({ ok: true, name, avatarSaved, seated });
+}
+
+/** 發佈完成後通知 GitHub Actions（repository_dispatch）。token 放在 Worker 的 Secret GITHUB_DISPATCH_TOKEN（只給該專案 Contents 讀寫）；失敗或沒設定都不影響發佈。 */
+async function notifyWalkFrames() {
+  const token = (env as unknown as Record<string, string | undefined>).GITHUB_DISPATCH_TOKEN;
+  if (!token) return;
+  try {
+    await fetch("https://api.github.com/repos/EMCtaipeiART/EMCtaipeiART.github.io/dispatches", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "User-Agent": "emc-character-workshop", "Content-Type": "application/json" },
+      body: JSON.stringify({ event_type: "character-published" }),
+      signal: AbortSignal.timeout(4000),
+    });
+  } catch { /* 通知失敗不影響發佈 */ }
 }
