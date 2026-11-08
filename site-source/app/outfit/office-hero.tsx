@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261122";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261123";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
   const [cine, setCine] = useState<"idle" | "tap" | "loading" | "ready" | "off">("idle");
@@ -18,6 +18,11 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   const [muted, setMuted] = useState(false);   // 預設有聲；瀏覽器擋下來時影片頁會回報 cinemaMuted
   const frame = useRef<HTMLIFrameElement>(null);
   const stage = useRef<HTMLDivElement>(null);
+  const [ctlOn, setCtlOn] = useState(true);   // 右下角的按鈕幾秒後自動收起，滑鼠移動／觸碰再出現，才不會擋到字幕
+  const hideTimer = useRef(0);
+  const tapHidden = useRef(false);
+  const wake = () => { setCtlOn(true); window.clearTimeout(hideTimer.current); hideTimer.current = window.setTimeout(() => setCtlOn(false), 3000); };
+  useEffect(() => { if (cine === "ready") wake(); return () => window.clearTimeout(hideTimer.current); }, [cine]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [full, setFull] = useState(false);
   const pseudoFull = useRef(false);
   // 全螢幕：先用瀏覽器的全螢幕（Android／電腦）；iPhone 不支援就請外層主站把這個頁面撐滿整個視窗（假全螢幕）
@@ -78,10 +83,10 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       <button type="button" className={`th-cta${ctaPulse ? " pulse" : ""}`} onClick={onStart}>{hasMine ? "換一個新造型" : "做我的角色，入座"}<span aria-hidden>→</span></button>
       <small className="th-note">{cine === "tap" ? "點畫面上的播放鈕，看設計部的小短劇" : cine === "loading" ? "辦公室劇場載入中，稍等幾秒就開演" : cine === "ready" ? "正在上映：《最後一版》" : "設計部的日常，等你加入"}</small>
     </div>
-    <div ref={stage} className={`th-stage${full ? " is-full" : ""}`} role="group" aria-label="辦公室劇場" style={cine === "ready" ? { cursor: "pointer" } : undefined} onClick={(e) => { if (cine !== "ready" || (e.target as HTMLElement).closest(".th-ctls")) return; frame.current?.contentWindow?.postMessage({ type: "cinemaToggle" }, CINEMA_ORIGIN); }}>   {/* 點畫面暫停／繼續 */}
+    <div ref={stage} className={`th-stage${full ? " is-full" : ""}`} role="group" aria-label="辦公室劇場" style={cine === "ready" ? { cursor: "pointer" } : undefined} onPointerMove={() => { if (cine === "ready") wake(); }} onPointerDown={(e) => { tapHidden.current = !ctlOn && e.pointerType !== "mouse"; if (cine === "ready") wake(); }} onClick={(e) => { if (tapHidden.current) { tapHidden.current = false; return; } if (cine !== "ready" || (e.target as HTMLElement).closest(".th-ctls, .th-exit")) return; frame.current?.contentWindow?.postMessage({ type: "cinemaToggle" }, CINEMA_ORIGIN); }}>   {/* 點畫面暫停／繼續 */}
       {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/cinema-video.html?embed=1&v=${CINEMA_VERSION}`} allow="autoplay; fullscreen" />}
-      {full && <button type="button" className="th-exit" onClick={exitFull}>✕ 退出全螢幕</button>}
-      {cine === "ready" && <div className="th-ctls">
+      {full && <button type="button" className={`th-exit${ctlOn || ended ? "" : " hide"}`} onClick={exitFull}>✕ 退出全螢幕</button>}
+      {cine === "ready" && <div className={`th-ctls${ctlOn || ended ? "" : " hide"}`}>
         <button type="button" className="th-skip" onClick={() => (full ? exitFull() : enterFull())}>{full ? "縮小" : "全螢幕"}</button>
         <button type="button" className="th-skip" onClick={() => { const next = !muted; setMuted(next); frame.current?.contentWindow?.postMessage({ type: "cinemaMute", muted: next }, CINEMA_ORIGIN); }}>{muted ? "開聲音" : "關聲音"}</button>
         <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaPrev" }, CINEMA_ORIGIN)}><span aria-hidden>◂◂ </span>上一句</button>
