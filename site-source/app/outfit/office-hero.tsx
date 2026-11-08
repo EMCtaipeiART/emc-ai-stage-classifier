@@ -9,10 +9,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 export const DESIGN_FIRST = ["Machi", "Anna", "Amber", "Leona", "Noise"];   // 設計部五位用的是遊戲內建圖集，本來就在辦公室裡
 const CINEMA_ORIGIN = "https://emc-art.com";
-const CINEMA_VERSION = "20261119";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
+const CINEMA_VERSION = "20261120";   // 3D 辦公室劇場有改動時一起加一，瀏覽器才不會抓到舊檔
 
 export default function OfficeTheater({ myName, characters, onStart }: { myName: string; characters: Record<string, number> | null; onStart: () => void }) {
-  const [cine, setCine] = useState<"idle" | "loading" | "ready" | "off">("idle");
+  const [cine, setCine] = useState<"idle" | "tap" | "loading" | "ready" | "off">("idle");
   const [ctaPulse, setCtaPulse] = useState(false);
   const [ended, setEnded] = useState(false);
   const [muted, setMuted] = useState(false);   // 預設有聲；瀏覽器擋下來時影片頁會回報 cinemaMuted
@@ -22,8 +22,8 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
   useEffect(() => {
     if (!characters || cine !== "idle") return;
     const weak = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
-    let gl = false; try { const c = document.createElement("canvas"); gl = Boolean(c.getContext("webgl2") || c.getContext("webgl")); } catch { gl = false; }
-    if (weak || !gl || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("off"); return; }
+    // 手機、省流量、系統設定減少動態：先只放劇照＋播放鈕，點了才開始載影片（省流量、也保證有使用者手勢，iOS 才放得出來）
+    if (window.innerWidth < 720 || weak || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setCine("tap"); return; }
     setCine("loading");
   }, [characters, cine]);
   useEffect(() => {   // 被瀏覽器擋成靜音時，使用者在頁面上第一次點擊就順便打開聲音
@@ -38,11 +38,12 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       if (e.origin !== CINEMA_ORIGIN || !e.data) return;
       if (e.data.type === "cinemaReady") setCine("ready");
       if (e.data.type === "cinemaCta") setCtaPulse(Boolean(e.data.on));
+      if (e.data.type === "cinemaFail") setCine("off");   // 這個瀏覽器放不了或載太久：維持劇照
       if (e.data.type === "cinemaEnded") setEnded(Boolean(e.data.on));
       if (e.data.type === "cinemaMuted") setMuted(Boolean(e.data.muted));   // 瀏覽器不讓有聲播放時，影片頁會回報「仍是靜音」
     };
     window.addEventListener("message", onMessage);
-    const giveUp = window.setTimeout(() => setCine((v) => (v === "loading" ? "off" : v)), 90000);   // 一分半還沒載好就放棄，維持劇照
+    const giveUp = window.setTimeout(() => setCine((v) => (v === "loading" ? "off" : v)), 30000);   // 半分鐘還沒載好就放棄，維持劇照
     return () => { window.removeEventListener("message", onMessage); window.clearTimeout(giveUp); };
   }, [cine]);
 
@@ -52,7 +53,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
       <h2>歡迎入職，<br />你的位置留好了</h2>
       <p>上傳一張照片，AI 幫你做出專屬的像素角色。完成後你會出現在公司的多元宇宙裡，和同事一起上班、走動、聊天，是辦公室裡的一點小樂趣。</p>
       <button type="button" className={`th-cta${ctaPulse ? " pulse" : ""}`} onClick={onStart}>{hasMine ? "換一個新造型" : "做我的角色，入座"}<span aria-hidden>→</span></button>
-      <small className="th-note">{cine === "loading" ? "辦公室劇場載入中，稍等幾秒就開演" : cine === "ready" ? "正在上映：《最後一版》" : "設計部的日常，等你加入"}</small>
+      <small className="th-note">{cine === "tap" ? "點畫面上的播放鈕，看設計部的小短劇" : cine === "loading" ? "辦公室劇場載入中，稍等幾秒就開演" : cine === "ready" ? "正在上映：《最後一版》" : "設計部的日常，等你加入"}</small>
     </div>
     <div className="th-stage" role="group" aria-label="辦公室劇場" style={cine === "ready" ? { cursor: "pointer" } : undefined} onClick={(e) => { if (cine !== "ready" || (e.target as HTMLElement).closest(".th-ctls")) return; frame.current?.contentWindow?.postMessage({ type: "cinemaToggle" }, CINEMA_ORIGIN); }}>   {/* 點畫面暫停／繼續 */}
       {(cine === "loading" || cine === "ready") && <iframe ref={frame} className={`th-cine${cine === "ready" ? " on" : ""}`} title="辦公室劇場" tabIndex={-1} aria-hidden src={`${CINEMA_ORIGIN}/pixel-plaza/cinema-video.html?embed=1&v=${CINEMA_VERSION}`} allow="autoplay" />}
@@ -61,6 +62,7 @@ export default function OfficeTheater({ myName, characters, onStart }: { myName:
         {ended ? <button type="button" className="th-skip" onClick={() => { setEnded(false); frame.current?.contentWindow?.postMessage({ type: "cinemaReplay" }, CINEMA_ORIGIN); }}>再看一次</button>
           : <button type="button" className="th-skip" onClick={() => frame.current?.contentWindow?.postMessage({ type: "cinemaSkip" }, CINEMA_ORIGIN)}>下一句<span aria-hidden> ▸▸</span></button>}
       </div>}
+      {cine === "tap" && <button type="button" className="th-play" onClick={() => setCine("loading")} aria-label="播放辦公室小短劇"><svg viewBox="0 0 24 24" aria-hidden><path d="M8 5v14l11-7z" /></svg><span>點一下播放</span></button>}
       {cine === "loading" && <span className="th-loading" aria-hidden><i /></span>}
     </div>
   </section>;

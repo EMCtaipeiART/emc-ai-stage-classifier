@@ -235,3 +235,7 @@ html:has(.studio.embed){overflow:hidden}
 
 .studio .th-ctls{position:absolute;right:12px;bottom:12px;z-index:3;display:flex;gap:8px}
 .studio .th-ctls .th-skip{position:static}
+
+.studio .th-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:3;display:grid;justify-items:center;gap:6px;border:0;background:transparent;color:#fff;font:800 13px/1 inherit;font-family:inherit;letter-spacing:.12em;cursor:pointer;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+.studio .th-play svg{width:64px;height:64px;padding:16px;fill:#fff;background:rgba(0,0,0,.55);border-radius:50%;transition:transform .2s}
+.studio .th-play:hover svg,.studio .th-play:active svg{transform:scale(1.08)}
