@@ -45,7 +45,7 @@ export async function describePerson(apiKey: string, photo: Uint8Array, mime: st
   return text.slice(0, 800);
 }
 
-const STYLE = `ART STYLE: exactly the style of the attached reference strip (a turntable of an existing game character): cute 2-heads-tall chibi office worker, big round head, clean cel-shaded game illustration, EXTREMELY THICK smooth dark warm-black (#302828) outlines of even thickness, flat 2-3 tone shading, large round dark eyes with a white highlight, soft rosy cheeks, simple smile, plain rounded mitten hands, chunky shoes. Transparent background, no ground shadow, no text, no frame, no glow.`;
+const STYLE = `PROPORTIONS (STRICT, do not drift toward realistic or slim proportions): a SUPER-DEFORMED 2-heads-tall chibi. The head is HUGE: its height is about 48% of the whole figure height (the head is as tall as the torso plus legs combined), and the head is clearly wider than the shoulders. Short stubby torso, VERY SHORT legs, small mitten hands and chunky small feet. Match the head-to-body ratio of the reference strip exactly; never make the body longer or the head smaller than the reference, even if the person in the photo is tall or the outfit is long.\n\nART STYLE: exactly the style of the attached reference strip (a turntable of an existing game character): cute 2-heads-tall chibi office worker, big round head, clean cel-shaded game illustration, EXTREMELY THICK smooth dark warm-black (#302828) outlines of even thickness, flat 2-3 tone shading, large round dark eyes with a white highlight, soft rosy cheeks, simple smile, plain rounded mitten hands, chunky shoes. Transparent background, no ground shadow, no text, no frame, no glow.`;
 
 export function buildViews3Prompt(described: string, notes: string) {
   return [
