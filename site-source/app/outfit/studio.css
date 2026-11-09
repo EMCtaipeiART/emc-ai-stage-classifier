@@ -246,3 +246,4 @@ html:has(.studio.embed){overflow:hidden}
 
 .studio .th-ctls,.studio .th-exit{transition:opacity .35s}
 .studio .th-ctls.hide,.studio .th-exit.hide{opacity:0;pointer-events:none}
+@media(max-width:760px){.studio .lib-card{grid-template-columns:minmax(0,1fr);gap:10px}.studio .lib-thumb{width:100%;max-width:260px;height:110px}.studio .lib-main small{white-space:normal}}
