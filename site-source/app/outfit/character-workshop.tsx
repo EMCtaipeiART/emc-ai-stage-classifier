@@ -17,6 +17,10 @@ type TaskInfo = { kind: "grid" | "walk"; status: "queued" | "running" | "done" |
 type TaskState = { grid: TaskInfo | null; walk: TaskInfo | null; online: boolean; estimate: { grid: number; walk: number }; now: number; at: number };
 const API_GRID_SEC = 120;   // 雲端 API 算 8 角度約 1～3 分鐘
 const fmtMin = (sec: number) => sec < 90 ? "不到 1～2 分鐘" : `約 ${Math.max(1, Math.round(sec / 60))} 分鐘`;
+// 等待時輪流顯示的趣味說明（不透露用哪裡算；依進度百分比或經過時間挑一句）
+const GRID_LINES = ["正在畫你角色的側臉與斜 45 度…", "幫角色畫上帥氣的背影…", "一筆一筆畫出手啊、腳啊…", "檢查帽子與衣服在每個角度有沒有跑位…", "調整髮絲飄的方向…", "把鞋子的每個角度都畫整齊…", "快好了，最後修一下輪廓線…"];
+const WALK_LINES = ["教角色左腳右腳輪流往前走…", "讓手臂跟著步伐自然擺動…", "練習跑步的姿勢，衝衝衝…", "確認每個角度走起來都不會歪…", "最後潤飾一下步伐，快完成了…"];
+const pickLine = (lines: string[], pct: number) => lines[Math.min(lines.length - 1, Math.floor(Math.max(0, Math.min(99, pct)) / (100 / lines.length)))];
 
 /** 製作進度軸：三視圖確認 → 8 個角度 → 檢查並上線 → 走路與跑步影格 → 完成；顯示現在在哪一步、剩下大約多久。 */
 function Timeline({ stage, ts, busy, elapsed, viaApi, notice }: { stage: string; ts: TaskState | null; busy: string; elapsed: number; viaApi: boolean; notice: string }) {
@@ -35,15 +39,15 @@ function Timeline({ stage, ts, busy, elapsed, viaApi, notice }: { stage: string;
     { label: "三視圖確認", state: "done", detail: "已完成" },
     { label: "8 個角度", state: stage === "angles" ? (grid?.status === "failed" && !busy ? "fail" : "active") : "done",
       detail: stage === "angles"
-        ? (localGrid ? `${grid!.status === "queued" ? "等家裡電腦接單" : grid!.step || "家裡電腦生成中"}（免 API，剩 ${fmtMin(gridRemain)}）` : `${busy || "雲端 API 生成中"}（剩 ${fmtMin(gridRemain)}）`)
+        ? `${grid?.status === "queued" && localGrid ? "準備中，馬上開始…" : pickLine(GRID_LINES, gridPct)}（剩${fmtMin(gridRemain)}）`
         : "已完成", pct: gridPct },
     { label: "檢查並上線", state: stage === "angles" ? "wait" : stage === "review" ? "active" : "done", detail: stage === "review" ? "請轉一圈檢查，沒問題按「確認上線」" : stage === "done" ? "已上線" : "等你確認" },
     { label: "走路與跑步影格", state: stage === "done" ? (walkDone ? "done" : walk?.status === "failed" ? "fail" : "active") : "wait",
-      detail: stage !== "done" ? `上線後由家裡電腦製作（免 API，約 ${fmtMin(walkEst)}）`
+      detail: stage !== "done" ? `上線後接著幫角色練走路與跑步（${fmtMin(walkEst)}）`
         : walkDone ? "已完成，重新整理 3D 辦公室就會看到"
-        : walk?.status === "running" ? `${walk.step || "製作中"}（剩 ${fmtMin(walkRemain)}）`
-        : walk?.status === "failed" ? `沒做成功（${walk.error || "請聯絡管理者"}），會再排隊重試`
-        : walk ? `排隊中，等家裡電腦開機（${ts?.online ? "電腦在線，馬上開始" : "電腦目前沒開，開機後自動處理"}）` : "尚未排入",
+        : walk?.status === "running" ? `${pickLine(WALK_LINES, walk.pct ?? 0)}（剩${fmtMin(walkRemain)}）`
+        : walk?.status === "failed" ? "這次沒有做成功，系統會再排隊重試"
+        : walk ? "排隊中，輪到就會開始；可以先離開，完成後角色會自動換上" : "尚未排入",
       pct: walk?.status === "running" ? (walk.pct ?? 0) : walkDone ? 100 : 0 },
     { label: "完成", state: stage === "done" && walkDone ? "done" : "wait", detail: stage === "done" && walkDone ? "全部完成" : "" },
   ];
@@ -52,7 +56,7 @@ function Timeline({ stage, ts, busy, elapsed, viaApi, notice }: { stage: string;
   return <div className="preview" style={{ marginTop: 14 }}>
     <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
       <b>製作進度</b>
-      <span className="persona-hint" style={{ margin: 0 }}>{viaApi ? "雲端 API 算圖" : localGrid || (stage !== "angles" && ts?.online) ? "家裡電腦算圖（免 API）" : ts?.online ? "家裡電腦在線" : "家裡電腦沒開機，改用雲端 API"}{total > 0 ? `　全部完成預估還要${fmtMin(total)}` : ""}</span>
+      <span className="persona-hint" style={{ margin: 0 }}>{total > 0 ? `全部完成預估還要${fmtMin(total)}` : ""}</span>
     </div>
     {notice && <p className="persona-hint" style={{ color: "#c0392b", margin: "6px 0 0" }}>{notice}</p>}
     <ol style={{ listStyle: "none", margin: "12px 0 0", padding: 0 }}>{steps.map((st, i) => <li key={st.label} style={{ display: "grid", gridTemplateColumns: "26px 1fr", gap: 10, paddingBottom: i === steps.length - 1 ? 0 : 14, position: "relative" }}>
@@ -237,7 +241,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       const g = t?.grid;
       if (g?.status === "done") return "done";
       if (g?.status === "expired") return "expired";
-      if (g?.status === "failed") { setError(`家裡電腦沒做成功：${g.error || "未知原因"}。可以按「重試」，或改用雲端 API。`); return "failed"; }
+      if (g?.status === "failed") { setError(`這次生成沒有成功（${g.error || "未知原因"}），請按「重試」。`); return "failed"; }
       await new Promise((r) => setTimeout(r, 4000));
     }
     return "failed";
@@ -253,7 +257,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
         const res = await postJson<{ local?: boolean }>("/api/character/" + jobId + "/grid", token, JSON.stringify({ quality, forceApi }), true);
         if (res.local) {
           const st = await waitLocalGrid(jobId);
-          if (st === "expired") { setNotice("家裡電腦沒有回應，已自動改用雲端 API 算圖。"); setBusy(""); await fillGrid(jobId, true, true); return; }
+          if (st === "expired") { setNotice("已切換到備用方式生成，時間可能稍長一點。"); setBusy(""); await fillGrid(jobId, true, true); return; }
           if (st !== "done") { setFailed([...AI_ANGLES]); return; }
         }
       }
