@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, LoaderCircle, Sparkles, Upload, UserRound, X } from "lucide-react";
 import { normalizePhoto } from "@/lib/normalize-photo";
+import SeatPicker from "./seat-picker";
 import {
   ANGLES, SHEET_CELL, SHEET_FOOT, SHEET_HEIGHT, assembleFrames, avatarOf, bakeAtlas, clean, cutout, diagnose, loadImg, measure, noAdjust, placeCell, splitViews, splitGrid, toBlob,
   type Adjust, type Canvas, type Measure,
@@ -382,6 +383,11 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     </div>}
 
     {(stage === "angles" || stage === "review" || stage === "done") && job && <Timeline stage={stage} ts={ts} busy={busy} elapsed={elapsed} viaApi={viaApi} notice={notice} auto={!canAll} />}
+    {(stage === "angles" || stage === "review" || stage === "done") && job && <div className="preview" style={{ marginTop: 14 }}>
+      <h3 style={{ margin: "0 0 4px" }}>等待的時候，先選好你想坐的位置</h3>
+      <p className="persona-hint" style={{ margin: "0 0 10px" }}>上班時間你的角色會坐在這個位置；不選就在辦公室自由走動。點一下想坐的位置就設定好了，之後隨時可以到「我的座位」更改。</p>
+      <SeatPicker token={token} canAll={canAll} defaultName={publishName} />
+    </div>}
     {stage === "angles" && <div className="preview" style={{ marginTop: 14, textAlign: "center", padding: "36px 20px" }}>
       <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
       <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
