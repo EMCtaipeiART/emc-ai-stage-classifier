@@ -334,7 +334,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <section className="control">
         <div className="section-head"><h2>{job ? "重新生成三視圖" : "上傳照片，生成角色"}</h2></div>
         <div className="field-label">個人照片 <span>必填 · 1 張</span></div>
-        <button className="drop" onClick={() => input.current?.click()} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "拖曳或點擊上傳個人照"}</strong><span>清楚的正面或半身照最準</span><small>PNG / JPG / WebP · 10 MB 以內</small></button>
+        <button className="drop" onClick={() => input.current?.click()} onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (!f) return; if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { setError("請拖入 PNG、JPG 或 WebP 圖片。"); return; } if (f.size > 10 * 1024 * 1024) { setError("照片太大（上限 10 MB）。"); return; } setError(""); setFile(f); }} disabled={Boolean(busy)}><span className="upload-icon"><Upload size={22} /></span><strong>{file ? file.name : "拖曳或點擊上傳個人照"}</strong><span>清楚的正面或半身照最準</span><small>PNG / JPG / WebP · 10 MB 以內</small></button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f && f.size <= 10 * 1024 * 1024) setFile(f); e.target.value = ""; }} />
         {preview && <div className="thumbs"><div><img src={preview} alt="個人照" /><button onClick={() => setFile(null)} aria-label="移除照片" disabled={Boolean(busy)}><X size={13} /></button></div></div>}
         <label className="field-label" htmlFor="char-notes">提示詞 <span>選填 · 髮型、穿著、帽子、眼鏡都寫在這裡</span></label>
