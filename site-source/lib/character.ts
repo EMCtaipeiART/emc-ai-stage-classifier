@@ -31,7 +31,7 @@ export const angleName = (deg: number) => `a${String(deg).padStart(3, "0")}`;
 
 /** 能用角色工坊的人：設計部、企劃部、專案部同仁與管理者。 */
 export function canUseCharacterStudio(who: Who) {
-  return canManageAll(who) || who.designer || who.pixelDesigner || /企劃部|專案部|設計部/.test(who.department || "");
+  return canManageAll(who) || who.designer || who.pixelDesigner || /企劃部|專案部|設計部|測試員/.test(who.department || "");
 }
 
 /** 管理者可以把角色發佈給誰：後台資料庫「帳號設定」裡全部人員（所有部門），加上 Pixel Office 12 人與自己。 */

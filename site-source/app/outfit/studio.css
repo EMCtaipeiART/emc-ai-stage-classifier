@@ -43,7 +43,7 @@
 .studio .thumbs{display:flex;gap:10px;margin-top:12px}
 .studio .thumbs>div{position:relative;height:75px;width:75px}
 .studio .thumbs img{height:100%;width:100%;object-fit:cover;border-radius:9px}
-.studio .thumbs button{position:absolute;right:-4px;top:-4px;border:0;background:var(--ink);color:#fff;width:20px;height:20px;border-radius:50%;display:grid;place-items:center}
+.studio .thumbs button{position:absolute;right:-6px;top:-6px;z-index:2;border:2px solid #fff;background:#2b332e;color:#fff;width:22px;height:22px;padding:0;border-radius:50%;display:grid;place-items:center;line-height:1;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .studio textarea{width:100%;resize:vertical;min-height:115px;border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:12px;font-size:12px;line-height:1.8;color:var(--ink)}
 .studio textarea::placeholder{color:var(--faint)}
 .studio .prompt-foot{display:flex;justify-content:space-between;gap:9px;color:var(--faint);font-size:9px;margin-top:6px}
