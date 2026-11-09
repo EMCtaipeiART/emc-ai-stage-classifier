@@ -154,9 +154,25 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     if (!openId || openId === "new") {   // 進來預設就是「新增一套角色」：不再載入上一次的製作單（圖多、讀很久）；舊的從下方管理表開啟
       setStage("upload");
       void fetch("/api/character/seat", { headers: auth, cache: "no-store" }).then((r) => r.json() as Promise<{ me?: string; targets?: string[] }>).then((p) => { setMyName(p.me || ""); setTargets(p.targets || []); }).catch(() => undefined);
+      // 一般同仁上次還沒做完（三視圖未確認、角度還在算、或已上線但走路影格還在做）：直接回到那一套的進度，不用再往下找
+      if (!openId && !canAll) void (async () => {
+        try {
+          const r = await fetch("/api/character", { headers: auth, cache: "no-store" });
+          const p = await r.json() as { job?: (JobInfo & { updatedAt?: string }) | null };
+          const j = p.job; if (!j) return;
+          const age = Date.now() - new Date(String(j.updatedAt || "").replace(" ", "T") + (String(j.updatedAt || "").includes("Z") ? "" : "Z")).getTime();
+          if (!(age < 7 * 86400_000)) return;
+          let unfinished = j.status === "views3" || j.status === "angles";
+          if (!unfinished && j.status === "published") { const t = await fetchTask(j.id); unfinished = Boolean(t?.walk && (t.walk.status === "queued" || t.walk.status === "running")); }
+          if (unfinished) await loadJob(j.id);
+        } catch { /* 讀不到就維持新增畫面 */ }
+      })();
       return;
     }
-    (async () => {
+    void loadJob(openId);
+  }, [token]);
+  async function loadJob(openId: string) {
+    {
       try {
         const r = await fetch("/api/character" + (openId ? `?id=${encodeURIComponent(openId)}` : ""), { headers: auth, cache: "no-store" });
         const p = await r.json() as { job?: JobInfo | null; error?: string; name?: string; targets?: string[] };
@@ -180,8 +196,8 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
           setStage(p.job.status === "published" ? "done" : Object.keys(got).length === AI_ANGLES.length ? "review" : "angles");
         } else setStage("upload");
       } catch (cause) { setError(cause instanceof Error ? cause.message : "讀取失敗"); setStage("upload"); }
-    })();
-  }, [token]);
+    }
+  }
 
   const mkCell = () => { const c = document.createElement("canvas"); c.width = c.height = SHEET_CELL; return c; };
   const measures: Array<Measure | null> = useMemo(() => views.map((v) => measure(v)), [views]);
