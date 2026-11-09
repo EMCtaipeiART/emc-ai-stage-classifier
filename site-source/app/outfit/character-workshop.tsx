@@ -23,7 +23,7 @@ const WALK_LINES = ["教角色左腳右腳輪流往前走…", "讓手臂跟著�
 const pickLine = (lines: string[], pct: number) => lines[Math.min(lines.length - 1, Math.floor(Math.max(0, Math.min(99, pct)) / (100 / lines.length)))];
 
 /** 製作進度軸：三視圖確認 → 8 個角度 → 檢查並上線 → 走路與跑步影格 → 完成；顯示現在在哪一步、剩下大約多久。 */
-function Timeline({ stage, ts, busy, elapsed, viaApi, notice }: { stage: string; ts: TaskState | null; busy: string; elapsed: number; viaApi: boolean; notice: string }) {
+function Timeline({ stage, ts, busy, elapsed, viaApi, notice, auto }: { stage: string; ts: TaskState | null; busy: string; elapsed: number; viaApi: boolean; notice: string; auto: boolean }) {
   const nowSrv = ts ? ts.now + (Date.now() - ts.at) : Date.now();
   const grid = ts?.grid, walk = ts?.walk, est = ts?.estimate || { grid: 300, walk: 540 };
   const localGrid = !viaApi && grid && ["queued", "running", "done"].includes(grid.status);
@@ -41,7 +41,7 @@ function Timeline({ stage, ts, busy, elapsed, viaApi, notice }: { stage: string;
       detail: stage === "angles"
         ? `${grid?.status === "queued" && localGrid ? "準備中，馬上開始…" : pickLine(GRID_LINES, gridPct)}（剩${fmtMin(gridRemain)}）`
         : "已完成", pct: gridPct },
-    { label: "檢查並上線", state: stage === "angles" ? "wait" : stage === "review" ? "active" : "done", detail: stage === "review" ? "請轉一圈檢查，沒問題按「確認上線」" : stage === "done" ? "已上線" : "等你確認" },
+    { label: auto ? "自動上線" : "檢查並上線", state: stage === "angles" ? "wait" : stage === "review" ? "active" : "done", detail: stage === "review" ? (auto ? "自動檢查並上線中…" : "請轉一圈檢查，沒問題按「確認上線」") : stage === "done" ? "已上線" : (auto ? "完成後自動上線，不需要你確認" : "等你確認") },
     { label: "走路與跑步影格", state: stage === "done" ? (walkDone ? "done" : walk?.status === "failed" ? "fail" : "active") : "wait",
       detail: stage !== "done" ? `上線後接著幫角色練走路與跑步（${fmtMin(walkEst)}）`
         : walkDone ? "已完成，重新整理 3D 辦公室就會看到"
@@ -282,6 +282,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
 
   const frames = useMemo(() => sheetCells.length === 3 ? assembleFrames(sheetCells, ai) : [], [sheetCells, ai]);
   const turnRef = useRef<HTMLCanvasElement>(null);
+  const autoRef = useRef("");
   useEffect(() => {
     const target = turnRef.current, frame = frames[turn];
     if (!target || !frame) return;
@@ -318,6 +319,13 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
     if (i === 2) { setStage(Object.keys(ai).length === AI_ANGLES.length ? "review" : "angles"); return; }
     if (frames.length === 12 && frames.every(Boolean)) setStage("review"); else setError("角度還沒補齊，先到「補其餘角度」完成。");
   }
+  // 一般同仁：三視圖確認後，8 個角度算好就直接自動上線，不用再檢查、按確認（管理者仍保留檢查畫面，因為要選發佈給誰）
+  useEffect(() => {
+    if (canAll || stage !== "review" || !job || busy || autoRef.current === job.id) return;
+    if (!frames.length || frames.some((f) => !f) || !publishName) return;
+    autoRef.current = job.id; void publish();
+  }, [stage, frames, job?.id, busy, publishName, canAll]);
+
   async function makeMyDefault() {
     if (!job || busy) return; setError(""); setBusy("設定預設");
     try { const r = await postJson<{ name?: string }>(`/api/character/${job.id}/default`, token, JSON.stringify({ name: canAll ? (job.target || target) : undefined }), true); setJob({ ...job, publishedAs: r.name || job.target || "預設" }); onPublished?.(); }
@@ -373,7 +381,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       </div>
     </div>}
 
-    {(stage === "angles" || stage === "review" || stage === "done") && job && <Timeline stage={stage} ts={ts} busy={busy} elapsed={elapsed} viaApi={viaApi} notice={notice} />}
+    {(stage === "angles" || stage === "review" || stage === "done") && job && <Timeline stage={stage} ts={ts} busy={busy} elapsed={elapsed} viaApi={viaApi} notice={notice} auto={!canAll} />}
     {stage === "angles" && <div className="preview" style={{ marginTop: 14, textAlign: "center", padding: "36px 20px" }}>
       <LoaderCircle size={44} className="spin" style={{ margin: "0 auto" }} />
       <h3 style={{ margin: "14px 0 4px" }}>{busy ? "正在製作你的角色…" : failed.length ? "有幾個角度沒做成功" : "準備中…"}</h3>
