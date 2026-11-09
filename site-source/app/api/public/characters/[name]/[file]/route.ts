@@ -7,7 +7,7 @@ export async function GET(request: Request, context: { params: Promise<{ name: s
   return edgeCached(request, ttl, async () => {
     const { name: raw, file } = await context.params;
     const name = decodeURIComponent(raw), base = file.replace(/\.png$/, "");
-    if (!["atlas", "atlas-hd"].includes(base) || /[\\/?#]/.test(name)) return new Response("Not found", { status: 404 });
+    if (!["atlas", "atlas-hd", "walk", "walk-hd"].includes(base) || /[\\/?#]/.test(name)) return new Response("Not found", { status: 404 });
     const bytes = await readAsset(`charpub/${name}/${base}.png`);
     if (!bytes) return new Response("Not found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
     return new Response(bytes as BodyInit, { headers: { "Content-Type": "image/png", "Cache-Control": `public, max-age=${ttl}`, "Access-Control-Allow-Origin": "*" } });

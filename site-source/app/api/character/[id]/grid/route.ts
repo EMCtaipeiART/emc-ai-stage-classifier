@@ -3,6 +3,7 @@ import { deleteAsset } from "@/lib/storage";
 import { AI_ANGLES, angleName, GRID_KEY, bumpAngle, heartbeatJson, jobKey, logGeneration, ownJob, putAsset, readAsset, requireWho } from "@/lib/character";
 import { canManageAll } from "@/lib/coins-client";
 import { env } from "cloudflare:workers";
+import { currentTask, enqueue, isOnline } from "@/lib/local-worker";
 
 export const runtime = "edge";
 const MAX_TRIES = 3;   // 整組 8 角度合圖最多重算幾次（管理者不限）
@@ -16,8 +17,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id } = await context.params;
   const job = await ownJob(id, auth.who);
   if (!job) return Response.json({ error: "找不到這張製作單。" }, { status: 404 });
-  const body = await request.json().catch(() => ({})) as { quality?: string };
+  const body = await request.json().catch(() => ({})) as { quality?: string; forceApi?: boolean };
   const quality = canManageAll(auth.who) && body.quality === "high" ? "high" : "medium";
+  // 家裡電腦在線（心跳 2 分鐘內）→ 交給本機用 Codex 算（不扣 API）；沒開機或使用者明確要求 API → 走下面原本的 API 算圖
+  if (!body.forceApi && await isOnline()) {
+    if (!await readAsset(jobKey(id, "sheet"))) return Response.json({ error: "還沒完成對位確認。" }, { status: 409 });
+    const open = await currentTask("grid", id);
+    if (!open || !["queued", "running"].includes(open.status)) await enqueue("grid", id);
+    return Response.json({ ok: true, local: true });
+  }
   const counts = (() => { try { return JSON.parse(job.angles_json || "{}") as Record<string, number>; } catch { return {}; } })();
   if (!canManageAll(auth.who) && (counts[GRID_KEY] || 0) >= MAX_TRIES) return Response.json({ error: `整組角度最多重算 ${MAX_TRIES} 次，已用完；可以改成單獨補算某個角度。`, reason: "LIMIT" }, { status: 429 });
   const sheet = await readAsset(jobKey(id, "sheet"));

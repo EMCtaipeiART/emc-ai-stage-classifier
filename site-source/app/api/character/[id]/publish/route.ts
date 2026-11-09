@@ -2,6 +2,7 @@ import { canManageAll, designApi, editorTokenOf } from "@/lib/coins-client";
 import { env } from "cloudflare:workers";
 import { saveAvatarSnapshot, isPng, jobKey, ownJob, publishTargets, putAsset, requireWho, setPublished, updateJob } from "@/lib/character";
 import { upsertPersona } from "@/lib/persona";
+import { currentTask, enqueue } from "@/lib/local-worker";
 
 /** 發佈：前端烘焙好的 12 視角圖集（一般 60px 格、高清 240px 格）存到雲端，3D 辦公室下次載入就會用；同時更新頭像快照並結束新人精靈。 */
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -35,6 +36,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (avatar.startsWith("data:image/png;base64,")) {
     avatarSaved = await saveAvatarSnapshot(request, who, avatar, `char:${id}`, name);
   }
+  // 走路／跑步影格：交給家裡電腦（Codex）做，不扣 API；電腦沒開就排隊等開機。做好前網站先用簡單的擺動動畫
+  try {
+    const ver = (await env.DB!.prepare("SELECT version FROM character_published WHERE name = ?").bind(name).first<{ version: number }>())?.version || 1;
+    const open = await currentTask("walk", id);
+    if (!open || open.status !== "running") await enqueue("walk", id, { name, version: ver });
+  } catch { /* 排程失敗不影響上線 */ }
   // 管理者代同事發佈：直接幫他完成入座（企劃部／專案部同仁不用再回去走完「建立你的角色」）；後端還沒更新或對象不是這類同仁時略過
   let seated = false;
   if (canManageAll(who) && name !== who.name) {
