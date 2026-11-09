@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     await env.DB!.prepare("CREATE TABLE IF NOT EXISTS character_first_free (account TEXT PRIMARY KEY, job_id TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
     const used = await env.DB!.prepare("SELECT (SELECT COUNT(*) FROM character_first_free WHERE account = ?) + (SELECT COUNT(*) FROM character_jobs WHERE account = ?) AS n").bind(who.account, who.account).first<{ n: number }>();
     if (Number(used?.n) > 0) {
-      const reserve = await designApi("coinReserve", { editorToken: editorTokenOf(request), ref: id, regenerate: false }, true);
+      const reserve = await designApi("coinReserve", { editorToken: editorTokenOf(request), ref: id, regenerate: false, character: true }, true);
       if (!reserve.ok) return Response.json({ error: reserve.error === "TOKEN_EXPIRED" ? "登入已過期，請回設計需求系統重新登入後再進入。" : (reserve.error || "平台幣扣款失敗"), reason: reserve.error === "TOKEN_EXPIRED" ? "TOKEN_EXPIRED" : "COIN" }, { status: reserve.error === "TOKEN_EXPIRED" ? 401 : 402 });
       charged = !reserve.exempt;
     } else {
