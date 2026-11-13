@@ -376,7 +376,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <section className="preview">
         <div className="section-head"><div className="preview-title"><h2>製作流程</h2></div></div>
         <div className="guidance"><div><span>VIEWS</span><b>三視圖＋自動對位</b><p>AI 先畫正面、側面、背面，系統自動量頭頂與腳底並對齊，你只要確認。</p></div><div><span>ANGLES</span><b>一次補齊其餘角度</b><p>確認後用一張圖補齊其他 8 個角度，不滿意的角度可以單獨重算。</p></div></div>
-        <div className="guidance"><div><span>PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p></div><div><span>SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到下方「我的座位」設定。</p></div></div>
+        <div className="guidance"><div><span>PUBLISH</span><b>上線到 3D 辦公室</b><p>檢查完按「確認上線」，頭像快照也一起更新。</p><button type="button" className="open-btn" style={{ marginTop: 8 }} onClick={() => { try { window.parent.postMessage({ type: "emcOpenUniverse" }, "*"); } catch { /* 外層不收就算了 */ } }}>進入多元宇宙 →</button></div><div><span>SETS</span><b>可以做很多套</b><p>每套都留在「我的角色」，隨時指定哪一套是預設。座位到下方「我的座位」設定。</p></div></div>
       </section>
     </div>}
 
@@ -431,6 +431,7 @@ export default function CharacterWorkshop({ token, departmentLabel, canAll = fal
       <p className="preview-bottom"><span>重新整理 3D 辦公室（約 1 分鐘內）就會看到新角色，首頁頭像框也會更新。要固定坐在某個位置，請到頁面下方「我的座位」；不選就在辦公室自由走動。</span></p>
       <div className="job-actions">
         {job && !job.publishedAs && <button className="generate" style={{ width: "auto", padding: "12px 20px" }} onClick={() => void makeMyDefault()} disabled={Boolean(busy)}>{busy ? <LoaderCircle size={19} className="spin" /> : <Check size={17} />}<span>把這套設為預設角色</span></button>}
+        {job?.publishedAs && <button className="open-btn" onClick={() => { try { window.parent.postMessage({ type: "emcOpenUniverse", name: job.publishedAs }, "*"); } catch { /* 外層不收就算了 */ } }}>去辦公室看看 →</button>}
         <button className="open-btn" onClick={() => onNew?.()}>＋ 再新增一套角色</button>
       </div>
     </div>}
